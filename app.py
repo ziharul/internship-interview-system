@@ -49,9 +49,36 @@ h1{font-size:2.0rem!important;font-weight:800!important;margin:0 0 .4rem!importa
 h2{font-size:1.35rem!important}h3{font-size:1.12rem!important}
 p{line-height:1.6}
 [data-testid="stSidebar"]{background:#fff;border-right:1px solid #e4eaf2}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:.6rem}
-[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]{padding:10px 10px!important;border-radius:9px!important;margin:1px 0!important}
-[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked){background:#edf3ff!important;color:#254da8!important;font-weight:700}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:.30rem}
+[data-testid="stSidebar"]{min-width:265px;max-width:290px}
+/* The navigation is made of plain clickable buttons, without radio circles. */
+[data-testid="stSidebar"] .st-key-main_navigation{margin-bottom:-.12rem}
+[data-testid="stSidebar"] .st-key-main_navigation button{
+    min-height:43px!important;height:43px!important;width:100%;
+    border:1px solid transparent!important;border-radius:10px!important;
+    background:transparent!important;color:#4c607a!important;
+    justify-content:flex-start!important;text-align:left!important;
+    padding:0 13px!important;font-size:.86rem!important;font-weight:600!important;
+    box-shadow:none!important;transition:background .15s ease,color .15s ease;
+}
+[data-testid="stSidebar"] .st-key-main_navigation button:hover{
+    background:#f0f5fc!important;color:#1b4ca9!important;
+}
+[data-testid="stSidebar"] .st-key-main_navigation button[kind="primary"]{
+    background:#eaf1ff!important;color:#2355b3!important;
+    border:1px solid #dce8ff!important;box-shadow:inset 3px 0 0 #3567d8!important;
+    font-weight:800!important;
+}
+[data-testid="stSidebar"] .st-key-main_navigation button [data-testid="stIconMaterial"]{font-size:1.15rem}
+[data-testid="stSidebar"] .st-key-signout_panel button{
+    width:100%;min-height:40px!important;border-radius:10px!important;
+    border:1px solid #e0e8f2!important;background:#fff!important;
+    color:#536780!important;justify-content:flex-start!important;
+    font-weight:650!important;
+}
+[data-testid="stSidebar"] .st-key-signout_panel button:hover{background:#fff0f0!important;color:#bd3f4a!important;border-color:#f4d9dd!important}
+[data-testid="stSidebar"] [data-testid="stExpander"]{box-shadow:none!important;border:1px solid #e4ebf3!important}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary{font-size:.83rem!important;font-weight:700!important}
 [data-testid="stSidebar"] [data-testid="stFileUploader"]{background:#f7f9fc;border-radius:12px;border:1px dashed #c9d5e6;padding:5px}
 [data-testid="stForm"]{background:#fff;border:1px solid #e2eaf3;border-radius:18px;padding:24px 28px;box-shadow:0 8px 28px rgba(27,60,104,.025)}
 [data-testid="stExpander"]{border-radius:12px;border:1px solid #e4ebf3;background:#fff}
@@ -74,7 +101,14 @@ p{line-height:1.6}
 .brand-icon{width:42px;height:42px;background:linear-gradient(140deg,#2454bc,#3d7fe7);color:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:23px;box-shadow:0 5px 15px #2f61c122}
 .brand-title{font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;color:#102743;font-weight:800;line-height:1.35}
 .brand-subtitle{font-size:.74rem;color:#8492a4;margin-top:4px}
-.nav-caption{font-size:.68rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8a99ab;margin:16px 0 4px}
+.nav-caption{font-size:.66rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8a99ab;margin:19px 0 9px}
+.sidebar-divider{height:1px;background:#e8edf4;margin:16px 0 10px}
+.sidebar-profile{display:flex;align-items:center;gap:10px;padding:12px;background:#f7f9fd;border:1px solid #e9eef5;border-radius:12px;margin:4px 0 6px}
+.profile-avatar{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:#dce8ff;color:#2357b7;font-weight:800;font-size:.86rem}
+.profile-name{color:#193859;font-size:.82rem;font-weight:800;overflow-wrap:anywhere}
+.profile-role{color:#7c8da1;font-size:.7rem;margin-top:2px}
+.logout-copy{font-size:.86rem;line-height:1.6;color:#64768a;margin:4px 0 14px}
+.logout-note{font-size:.81rem;line-height:1.6;color:#986a14;background:#fff8e6;padding:13px 14px;border:1px solid #f6e9bc;border-radius:10px;margin:0 0 18px}
 .hero{background:linear-gradient(111deg,#102947 0%,#183e71 58%,#2857a0 100%);border-radius:19px;padding:32px 36px 35px;display:flex;justify-content:space-between;align-items:center;gap:26px;overflow:hidden;position:relative;margin-bottom:23px;box-shadow:0 14px 34px #12335d15}
 .hero:after{content:'';position:absolute;right:-115px;top:-105px;width:380px;height:380px;border:1px solid #ffffff2e;border-radius:50%;box-shadow:0 0 0 55px #ffffff07,0 0 0 112px #ffffff05}
 .hero-main{position:relative;z-index:1;max-width:680px}
@@ -115,10 +149,13 @@ p{line-height:1.6}
 .podium-meta{font-size:.77rem;color:#8190a3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
 .podium-score{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.6rem;font-weight:800;color:#2f62d3;margin-top:13px}
 .podium-score span{font-size:.8rem;color:#8596ac}
-.login-shell{max-width:490px;margin:45px auto 0;padding:0 7px}
-.login-icon{width:60px;height:60px;display:flex;align-items:center;justify-content:center;background:linear-gradient(120deg,#2359c1,#5290ef);color:#fff;border-radius:17px;margin:0 auto 18px;font-size:30px;box-shadow:0 13px 24px #2f66ca2b}
-.login-title{text-align:center;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.7rem;font-weight:800;color:#12304d;margin-bottom:10px}
-.login-desc{text-align:center;color:#75869b;font-size:.91rem;margin-bottom:26px}
+.login-shell{margin:46px auto 20px;padding:0 4px;text-align:center}
+.st-key-login_card [data-testid="stForm"]{padding:20px 23px 23px!important;border-radius:16px!important;box-shadow:0 13px 40px #1c476a12!important}
+.st-key-login_card [data-testid="stForm"] [data-testid="stVerticalBlock"]{gap:.68rem!important}
+.st-key-login_card [data-testid="stForm"] button{min-height:42px!important}
+.login-icon{width:52px;height:52px;display:flex;align-items:center;justify-content:center;background:linear-gradient(120deg,#2359c1,#5290ef);color:#fff;border-radius:14px;margin:0 auto 17px;font-size:24px;box-shadow:0 11px 23px #2f66ca24}
+.login-title{text-align:center;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.48rem;font-weight:800;color:#12304d;margin-bottom:8px}
+.login-desc{text-align:center;color:#75869b;font-size:.84rem;line-height:1.6;margin:0 auto 20px;max-width:350px}
 .login-footer{text-align:center;color:#8494a7;font-size:.73rem;margin:17px 0}
 @media(max-width:1000px){.block-container{padding:1.7rem 1rem 2.5rem}.stats{grid-template-columns:repeat(2,1fr)}.hero{padding:23px;display:block}.hero-right{display:none}}
 @media(max-width:520px){.stats{grid-template-columns:1fr 1fr;gap:8px}.stat{padding:13px}.stat-value{font-size:1.5rem}.podium{grid-template-columns:1fr}.hero h1{font-size:1.55rem!important}}
@@ -147,24 +184,29 @@ if st.session_state.get("authenticated_revision") != credential_revision:
     st.session_state["authenticated"] = False
 
 if not st.session_state.get("authenticated", False):
-    st.markdown('<div class="login-shell"><div class="login-icon">🔐</div><div class="login-title">Selamat datang kembali</div><div class="login-desc">Masuk untuk mengelola data peserta magang, melakukan interview, dan melihat hasil seleksi.</div></div>', unsafe_allow_html=True)
-    if st.session_state.get("failed_logins", 0) >= 5:
-        st.error("Terlalu banyak percobaan pada sesi ini. Tutup sesi browser dan coba kembali. Untuk proteksi lebih kuat, gunakan autentikasi akun organisasi (SSO/OIDC).")
-        st.stop()
-    with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("Username", placeholder="Masukkan username", autocomplete="username")
-        password = st.text_input("Password", type="password", placeholder="Masukkan password", autocomplete="current-password")
-        login_submit = st.form_submit_button("Masuk ke Sistem  →", type="primary", use_container_width=True)
-    if login_submit:
-        if hmac.compare_digest(username, APP_USERNAME) and hmac.compare_digest(password, APP_PASSWORD):
-            st.session_state["authenticated"] = True
-            st.session_state["authenticated_revision"] = credential_revision
-            st.session_state["failed_logins"] = 0
-            st.rerun()
-        else:
-            st.session_state["failed_logins"] = st.session_state.get("failed_logins", 0) + 1
-            st.error("Username atau password tidak sesuai.")
-    st.markdown('<div class="login-footer">INTERNAL RECRUITMENT PORTAL · AKSES TERBATAS</div>', unsafe_allow_html=True)
+    # Center both the heading AND the actual Streamlit form, not just the HTML header.
+    # The middle column stays approximately 420-490px on a desktop screen.
+    _, login_column, _ = st.columns([1.05, 1.10, 1.05], gap="small")
+    with login_column:
+        st.markdown('<div class="login-shell"><div class="login-icon">🔐</div><div class="login-title">Selamat datang kembali</div><div class="login-desc">Masuk untuk mengelola kandidat, melakukan wawancara, dan melihat hasil seleksi.</div></div>', unsafe_allow_html=True)
+        if st.session_state.get("failed_logins", 0) >= 5:
+            st.error("Terlalu banyak percobaan pada sesi ini. Tutup sesi browser dan coba kembali. Untuk proteksi lebih kuat, gunakan autentikasi akun organisasi (SSO/OIDC).")
+            st.stop()
+        with st.container(key="login_card"):
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input("Username", placeholder="Masukkan username", autocomplete="username")
+                password = st.text_input("Password", type="password", placeholder="Masukkan password", autocomplete="current-password")
+                login_submit = st.form_submit_button("Masuk ke Sistem", type="primary", use_container_width=True)
+        if login_submit:
+            if hmac.compare_digest(username, APP_USERNAME) and hmac.compare_digest(password, APP_PASSWORD):
+                st.session_state["authenticated"] = True
+                st.session_state["authenticated_revision"] = credential_revision
+                st.session_state["failed_logins"] = 0
+                st.rerun()
+            else:
+                st.session_state["failed_logins"] = st.session_state.get("failed_logins", 0) + 1
+                st.error("Username atau password tidak sesuai.")
+        st.markdown('<div class="login-footer">INTERNAL RECRUITMENT PORTAL · AKSES TERBATAS</div>', unsafe_allow_html=True)
     st.stop()
 
 if "candidates" not in st.session_state:
@@ -242,26 +284,41 @@ def _shortlist_table(records: list[dict]):
     st.dataframe(records, use_container_width=True, hide_index=True)
 
 
+@st.dialog("Konfirmasi keluar", width="small")
+def show_logout_dialog():
+    st.markdown('<p class="logout-copy">Anda akan keluar dari sistem Interview Peserta Magang.</p><div class="logout-note">Jika ada data baru, unduh Backup Excel terlebih dahulu. Data sesi yang belum diekspor tidak dapat dipulihkan.</div>', unsafe_allow_html=True)
+    cancel, confirm = st.columns(2, gap="small")
+    with cancel:
+        if st.button("Batal", key="cancel_logout", use_container_width=True):
+            st.rerun()
+    with confirm:
+        if st.button("Ya, keluar", key="confirm_logout", type="primary", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
+
+
 with st.sidebar:
     st.markdown('<div class="brand"><div class="brand-icon">◈</div><div><div class="brand-title">Internship Hub</div><div class="brand-subtitle">Recruitment & Assessment</div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="nav-caption">WORKSPACE MENU</div>', unsafe_allow_html=True)
-    menu = st.radio(
-        "NAVIGASI",
-        ["Mulai di Sini", "Data Kandidat", "Penilaian Interview", "Summary & Ranking", "Panduan & Rubrik"],
-        key="page",
-        label_visibility="collapsed",
-        format_func=lambda x: {
-            "Mulai di Sini": "▦   Dashboard",
-            "Data Kandidat": "♙   Data Kandidat",
-            "Penilaian Interview": "▤   Penilaian Interview",
-            "Summary & Ranking": "◫   Summary & Ranking",
-            "Panduan & Rubrik": "☷   Panduan & Rubrik",
-        }[x],
-    )
-    st.divider()
-    st.markdown('<div class="nav-caption">DATA MANAGEMENT</div>', unsafe_allow_html=True)
-    with st.expander("📁 Impor / Ekspor Data", expanded=True):
-        uploaded = st.file_uploader("Impor Excel", type=["xlsx"], help="Mengganti seluruh data pada sesi ini. Unduh backup terlebih dahulu.")
+    st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">MENU UTAMA</div>', unsafe_allow_html=True)
+    nav_items = [
+        ("Mulai di Sini", "Dashboard", ":material/dashboard:", "nav_dashboard"),
+        ("Data Kandidat", "Data Kandidat", ":material/groups:", "nav_candidates"),
+        ("Penilaian Interview", "Penilaian Interview", ":material/assignment_turned_in:", "nav_interview"),
+        ("Summary & Ranking", "Summary & Ranking", ":material/leaderboard:", "nav_ranking"),
+        ("Panduan & Rubrik", "Panduan & Rubrik", ":material/menu_book:", "nav_guide"),
+    ]
+    with st.container(key="main_navigation"):
+        for page_name, display_name, page_icon, widget_key in nav_items:
+            is_active = st.session_state.get("page") == page_name
+            if st.button(display_name, key=widget_key, icon=page_icon,
+                         use_container_width=True, type="primary" if is_active else "secondary"):
+                st.session_state["page"] = page_name
+                st.rerun()
+    menu = st.session_state["page"]
+
+    st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">PENGELOLAAN DATA</div>', unsafe_allow_html=True)
+    with st.expander("Backup & Impor Excel", expanded=False, icon=":material/folder_open:"):
+        uploaded = st.file_uploader("Pilih file backup Excel", type=["xlsx"], help="Mengganti seluruh data pada sesi ini. Unduh backup terlebih dahulu.")
         if uploaded is not None and st.button("Muat Data Excel", use_container_width=True):
             try:
                 new_c, new_i = read_xlsx(uploaded.getvalue())
@@ -274,24 +331,27 @@ with st.sidebar:
         try:
             excel_bytes = export_xlsx(C, I)
             st.download_button(
-                "⬇  Download Backup Excel",
+                "Download Backup Excel",
                 data=excel_bytes,
                 file_name=f"Hasil_Interview_Magang_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                type="primary",
+                icon=":material/download:",
             )
         except ValueError as exc:
             st.error(str(exc))
-        st.caption("Tanpa database: unduh Excel sebelum menutup atau memuat ulang sesi.")
-    st.divider()
-    st.markdown('<div class="nav-caption">AKUN PEWAWANCARA</div>', unsafe_allow_html=True)
-    st.caption(f"Masuk sebagai **{APP_USERNAME}**")
-    with st.popover("🔒  Keluar dari Sistem", use_container_width=True):
-        st.warning("Jika ada data baru, unduh Backup Excel sebelum keluar. Data sesi yang belum diekspor akan hilang.")
-        if st.button("Konfirmasi Keluar", type="primary", use_container_width=True):
-            st.session_state.clear()  # Clear all candidate details from shared-browser session.
-            st.rerun()
+        st.caption("Tanpa database, data harus diekspor sebelum menutup sesi.")
+
+    st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">AKUN PEWAWANCARA</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sidebar-profile"><div class="profile-avatar">' + html.escape(APP_USERNAME[:1].upper()) +
+        '</div><div><div class="profile-name">' + html.escape(APP_USERNAME) +
+        '</div><div class="profile-role">Akun aktif</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    with st.container(key="signout_panel"):
+        if st.button("Keluar dari Sistem", key="signout_button", icon=":material/logout:", use_container_width=True):
+            show_logout_dialog()
 
 # Data may have been replaced in the sidebar by an import. Rebind to the newest dict.
 C = st.session_state["candidates"]
