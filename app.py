@@ -1,7 +1,7 @@
 """Sistem Pendataan & Interview Peserta Magang — Streamlit.
 
 Run: streamlit run app.py
-Storage: st.session_state + manual Excel import/export; NO server database.
+Storage: Supabase PostgreSQL (persistent) + optional Excel export/import.
 """
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ import hmac
 import altair as alt
 
 import streamlit as st
+
+from db_store import (
+    DatabaseOperationError, configured, load_records, save_candidate, save_interview, import_backup,
+)
 
 from data_store import (
     ASPEK,
@@ -209,10 +213,17 @@ if not st.session_state.get("authenticated", False):
         st.markdown('<div class="login-footer">INTERNAL RECRUITMENT PORTAL · AKSES TERBATAS</div>', unsafe_allow_html=True)
     st.stop()
 
-if "candidates" not in st.session_state:
-    st.session_state["candidates"] = {}
-if "interviews" not in st.session_state:
-    st.session_state["interviews"] = {}
+# Fail closed: never use ephemeral session data as a silent database fallback.
+if not configured():
+    st.error("Koneksi PostgreSQL belum dikonfigurasi. Isi DATABASE_URL melalui Streamlit Cloud → Settings → Secrets.")
+    st.stop()
+try:
+    db_candidates, db_interviews = load_records()
+except DatabaseOperationError as exc:
+    st.error(str(exc))
+    st.stop()
+st.session_state["candidates"] = db_candidates
+st.session_state["interviews"] = db_interviews
 if "page" not in st.session_state:
     st.session_state["page"] = "Mulai di Sini"
 
@@ -286,7 +297,7 @@ def _shortlist_table(records: list[dict]):
 
 @st.dialog("Konfirmasi keluar", width="small")
 def show_logout_dialog():
-    st.markdown('<p class="logout-copy">Anda akan keluar dari sistem Interview Peserta Magang.</p><div class="logout-note">Jika ada data baru, unduh Backup Excel terlebih dahulu. Data sesi yang belum diekspor tidak dapat dipulihkan.</div>', unsafe_allow_html=True)
+    st.markdown('<p class="logout-copy">Anda akan keluar dari sistem Interview Peserta Magang.</p><div class="logout-note">Data kandidat dan hasil interview yang sudah disimpan tetap tersedia di PostgreSQL.</div>', unsafe_allow_html=True)
     cancel, confirm = st.columns(2, gap="small")
     with cancel:
         if st.button("Batal", key="cancel_logout", use_container_width=True):
@@ -318,16 +329,18 @@ with st.sidebar:
 
     st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">PENGELOLAAN DATA</div>', unsafe_allow_html=True)
     with st.expander("Backup & Impor Excel", expanded=False, icon=":material/folder_open:"):
-        uploaded = st.file_uploader("Pilih file backup Excel", type=["xlsx"], help="Mengganti seluruh data pada sesi ini. Unduh backup terlebih dahulu.")
-        if uploaded is not None and st.button("Muat Data Excel", use_container_width=True):
-            try:
-                new_c, new_i = read_xlsx(uploaded.getvalue())
-                st.session_state["candidates"] = new_c
-                st.session_state["interviews"] = new_i
-                st.success(f"{len(new_c)} kandidat dan {len(new_i)} hasil interview dimuat.")
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Impor gagal: {exc}")
+        uploaded = st.file_uploader("Pilih file backup Excel", type=["xlsx"], help="Impor menggabungkan data berdasarkan ID. ID yang sudah ada akan diperbarui, data lain tetap disimpan.")
+        if uploaded is not None:
+            st.caption("Impor akan menambahkan kandidat baru dan memperbarui ID yang sama. Data lain tidak dihapus.")
+            confirm_import = st.checkbox("Saya memahami bahwa data dengan ID sama akan diperbarui", key="db_confirm_import")
+            if st.button("Impor ke PostgreSQL", use_container_width=True, disabled=not confirm_import):
+                try:
+                    new_c, new_i = read_xlsx(uploaded.getvalue())
+                    import_backup(new_c, new_i)
+                    st.success(f"{len(new_c)} kandidat dan {len(new_i)} hasil interview berhasil diimpor ke PostgreSQL.")
+                    st.rerun()
+                except (ValueError, DatabaseOperationError) as exc:
+                    st.error(f"Impor gagal: {exc}")
         try:
             excel_bytes = export_xlsx(C, I)
             st.download_button(
@@ -340,7 +353,7 @@ with st.sidebar:
             )
         except ValueError as exc:
             st.error(str(exc))
-        st.caption("Tanpa database, data harus diekspor sebelum menutup sesi.")
+        st.caption("Data tersimpan di PostgreSQL. Download Excel sebagai backup berkala.")
 
     st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">AKUN PEWAWANCARA</div>', unsafe_allow_html=True)
     st.markdown(
@@ -407,7 +420,7 @@ if menu == "Mulai di Sini":
             panel_head("Langkah Selanjutnya", "Ikuti alur yang terstruktur")
             for no,title,desc in [("01","Daftarkan kandidat","Input identitas, perguruan tinggi dan pengalaman"),("02","Lakukan interview","Isi jawaban, catatan, dan tujuh aspek nilai"),("03","Tinjau hasil","Bandingkan ranking dan putuskan status akhir")]:
                 st.markdown(f'<div class="step"><div class="step-num">{no}</div><div class="step-body"><b>{title}</b><small>{desc}</small></div></div>', unsafe_allow_html=True)
-    st.caption("Data hanya tersimpan dalam sesi aktif. Gunakan Download Backup Excel untuk menyimpan hasil sebelum menutup aplikasi.")
+    st.caption("Data kandidat dan hasil interview yang disimpan tersedia kembali saat login. Download Excel untuk cadangan berkala.")
 
 elif menu == "Data Kandidat":
     section("CANDIDATE DATABASE", "Data Kandidat", "Kelola profil peserta magang dalam satu formulir terstruktur: identitas, pendidikan, kompetensi, dan ketersediaan magang.")
@@ -469,8 +482,12 @@ elif menu == "Data Kandidat":
         else:
             result["nama"] = result["nama"].strip()
             result["mulai"] = result["mulai"].isoformat() if result["mulai"] else ""
-            C[cid] = result
-            st.success(f"Profil {result['nama']} ({cid}) berhasil disimpan dalam sesi. Download backup Excel untuk menyimpannya permanen.")
+            try:
+                save_candidate(result, create=not existing)
+                C[cid] = result
+                st.success(f"Profil {result['nama']} ({cid}) berhasil disimpan ke PostgreSQL.")
+            except DatabaseOperationError as exc:
+                st.error(str(exc))
     st.divider()
     st.subheader("Daftar Kandidat")
     search = st.text_input("Cari nama, kampus, atau posisi", placeholder="Masukkan kata kunci...")
@@ -531,12 +548,16 @@ elif menu == "Penilaian Interview":
                 "keputusan": final, "kelebihan": strength, "peningkatan": needs_work, "catatan": notes,
                 **current_score,
             }
-            I[cid] = saved
-            sc, recom = calculate(saved, weights, high, mid)
-            if sc is None:
-                st.success("Catatan wawancara disimpan sebagai draft. Lengkapi tujuh aspek penilaian untuk menampilkan skor dan ranking.")
-            else:
-                st.success(f"Wawancara berhasil disimpan · Skor: {sc:.1f}/100 · {recom}.")
+            try:
+                save_interview(saved)
+                I[cid] = saved
+                sc, recom = calculate(saved, weights, high, mid)
+                if sc is None:
+                    st.success("Draft wawancara tersimpan di PostgreSQL. Lengkapi tujuh aspek penilaian untuk menampilkan skor dan ranking.")
+                else:
+                    st.success(f"Wawancara tersimpan di PostgreSQL · Skor: {sc:.1f}/100 · {recom}.")
+            except DatabaseOperationError as exc:
+                st.error(str(exc))
         show = I.get(cid)
         if show:
             sc, recom = calculate(show, weights, high, mid)
