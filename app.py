@@ -423,71 +423,156 @@ if menu == "Mulai di Sini":
     st.caption("Data kandidat dan hasil interview yang disimpan tersedia kembali saat login. Download Excel untuk cadangan berkala.")
 
 elif menu == "Data Kandidat":
-    section("CANDIDATE DATABASE", "Data Kandidat", "Kelola profil peserta magang dalam satu formulir terstruktur: identitas, pendidikan, kompetensi, dan ketersediaan magang.")
+    section(
+        "CANDIDATE DATABASE", "Data Kandidat",
+        "Lengkapi data satu peserta dari identitas hingga preferensi magang, kemudian simpan sekali di bagian paling bawah.",
+    )
+
+    # After saving a NEW candidate, stay on the newly saved profile instead of
+    # unexpectedly showing the blank form for the NEXT candidate (MG-002, etc.).
     options = ["➕ Tambah Kandidat Baru"] + sorted(C.keys())
-    choice = st.selectbox("Pilih kandidat untuk dilihat/diedit", options, format_func=lambda x: f"{x} — {C[x].get('nama','')}" if x in C else x)
+    pending = st.session_state.pop("candidate_pending_selection", None)
+    if pending in options:
+        st.session_state["candidate_choice"] = pending
+    if st.session_state.get("candidate_choice") not in options:
+        st.session_state["candidate_choice"] = options[0]
+
+    choice = st.selectbox(
+        "Pilih peserta untuk mengisi atau mengedit data",
+        options,
+        format_func=lambda x: f"{x} — {C[x].get('nama', '')}" if x in C else x,
+        key="candidate_choice",
+    )
     existing = choice in C
     cid = choice if existing else candidate_id_next(C)
     initial = C[choice].copy() if existing else {}
-    st.caption(f"ID Kandidat: **{cid}** · Kapasitas template Excel: {len(C)}/{MAX_KANDIDAT}")
-    with st.form(f"form_candidate_{cid}"):
-        t1, t2, t3, t4 = st.tabs(["Identitas & Kontak", "Pendidikan", "Pengalaman & Kompetensi", "Preferensi Magang & Berkas"])
+    if message := st.session_state.pop("candidate_saved_notice", None):
+        st.success(message)
+
+    st.caption(f"ID Kandidat: **{cid}** · Kapasitas ekspor Excel: {len(C)}/{MAX_KANDIDAT}")
+    if existing:
+        st.info("Anda sedang membuka profil kandidat yang sudah disimpan. Perbaiki data yang diperlukan, lalu klik **Simpan Perubahan** di bagian akhir formulir.")
+    else:
+        st.info("Isi seluruh bagian formulir berikut untuk **satu kandidat**. Data baru dikirim ke PostgreSQL setelah Anda menekan **Simpan Data Kandidat** di bagian paling bawah.")
+
+    with st.form(f"form_candidate_{cid}", clear_on_submit=False):
         result = {"id": cid}
-        with t1:
-            a, b = st.columns(2)
-            with a:
-                result["nama"] = st.text_input("Nama Lengkap *", value=initial.get("nama", ""))
-                result["telepon"] = st.text_input("No. HP / WA", value=initial.get("telepon", ""))
-                result["alamat"] = st.text_area("Alamat Domisili", value=initial.get("alamat", ""), height=80)
-            with b:
-                result["email"] = st.text_input("Email", value=initial.get("email", ""))
-                result["kota"] = st.text_input("Kota / Kabupaten", value=initial.get("kota", ""))
-        with t2:
-            a, b = st.columns(2)
-            with a:
-                result["kampus"] = st.text_input("Asal Perguruan Tinggi", value=initial.get("kampus", ""))
-                result["prodi"] = st.text_input("Program Studi / Jurusan", value=initial.get("prodi", ""))
-                result["ipk"] = st.number_input("IPK (0,00–4,00)", min_value=0.0, max_value=4.0, value=min(max(_float(initial.get("ipk")), 0.0), 4.0), step=0.01, format="%.2f")
-            with b:
-                result["jenjang"] = _select("Jenjang", initial.get("jenjang", ""), ["", "D3", "D4", "S1", "S2", "Lainnya"])
-                result["semester"] = st.number_input("Semester", min_value=0, max_value=16, value=min(max(_int(initial.get("semester")), 0), 16), step=1)
-                result["status_kuliah"] = _select("Status Perkuliahan", initial.get("status_kuliah", ""), ["", "Aktif", "Cuti", "Lulus", "Lainnya"])
-        with t3:
-            a, b = st.columns(2)
-            with a:
-                result["pengalaman_kerja"] = st.text_area("Pengalaman Magang / Kerja", value=initial.get("pengalaman_kerja", ""), height=110)
-                result["pengalaman_organisasi"] = st.text_area("Pengalaman Organisasi", value=initial.get("pengalaman_organisasi", ""), height=110)
-                result["portofolio"] = st.text_area("Proyek / Portofolio", value=initial.get("portofolio", ""), height=110)
-            with b:
-                result["keahlian"] = st.text_area("Keahlian Utama", value=initial.get("keahlian", ""), height=110)
-                result["tools"] = st.text_area("Tools / Software", value=initial.get("tools", ""), height=110)
-                result["sertifikasi"] = st.text_area("Sertifikasi / Pelatihan", value=initial.get("sertifikasi", ""), height=110)
-            result["link"] = st.text_input("Tautan LinkedIn / Portofolio", value=initial.get("link", ""))
-        with t4:
-            a, b = st.columns(2)
-            with a:
-                result["bidang"] = st.text_input("Posisi / Bidang Magang", value=initial.get("bidang", ""))
-                result["wfo"] = _select("Bersedia WFO", initial.get("wfo", ""), ["", "Ya", "Tidak", "Hybrid", "Negosiasi"])
-                result["durasi"] = st.number_input("Durasi (bulan)", min_value=0, max_value=24, step=1, value=min(max(_int(initial.get("durasi")), 0), 24))
-            with b:
-                result["mulai"] = st.date_input("Dapat Mulai Tanggal", value=_date(initial.get("mulai")), format="DD/MM/YYYY")
-                result["status_cv"] = _select("Status CV / Berkas", initial.get("status_cv", ""), ["", "Lengkap", "Belum Lengkap", "Proses Verifikasi"])
-            result["motivasi"] = st.text_area("Motivasi / Harapan Magang", value=initial.get("motivasi", ""), height=105)
-        submitted = st.form_submit_button("💾 Simpan Data Kandidat", type="primary", use_container_width=True)
+
+        st.markdown("### 01 · Identitas & Kontak")
+        st.caption("Informasi dasar dan kontak kandidat.")
+        a, b = st.columns(2, gap="large")
+        with a:
+            result["nama"] = st.text_input("Nama Lengkap *", value=initial.get("nama", ""))
+            result["telepon"] = st.text_input("No. HP / WA", value=initial.get("telepon", ""))
+            result["alamat"] = st.text_area("Alamat Domisili", value=initial.get("alamat", ""), height=85)
+        with b:
+            result["email"] = st.text_input("Email", value=initial.get("email", ""))
+            result["kota"] = st.text_input("Kota / Kabupaten", value=initial.get("kota", ""))
+
+        st.divider()
+        st.markdown("### 02 · Pendidikan")
+        st.caption("Asal perguruan tinggi, jenjang, dan informasi akademik.")
+        a, b = st.columns(2, gap="large")
+        with a:
+            result["kampus"] = st.text_input("Asal Perguruan Tinggi", value=initial.get("kampus", ""))
+            result["prodi"] = st.text_input("Program Studi / Jurusan", value=initial.get("prodi", ""))
+            result["ipk"] = st.number_input(
+                "IPK (0,00–4,00)", min_value=0.0, max_value=4.0,
+                value=min(max(_float(initial.get("ipk")), 0.0), 4.0),
+                step=0.01, format="%.2f",
+            )
+        with b:
+            result["jenjang"] = _select("Jenjang", initial.get("jenjang", ""), ["", "D3", "D4", "S1", "S2", "Lainnya"])
+            result["semester"] = st.number_input(
+                "Semester", min_value=0, max_value=16,
+                value=min(max(_int(initial.get("semester")), 0), 16), step=1,
+            )
+            result["status_kuliah"] = _select(
+                "Status Perkuliahan", initial.get("status_kuliah", ""),
+                ["", "Aktif", "Cuti", "Lulus", "Lainnya"],
+            )
+
+        st.divider()
+        st.markdown("### 03 · Pengalaman & Kompetensi")
+        st.caption("Pengalaman organisasi, proyek, keterampilan, dan sertifikasi.")
+        a, b = st.columns(2, gap="large")
+        with a:
+            result["pengalaman_kerja"] = st.text_area(
+                "Pengalaman Magang / Kerja", value=initial.get("pengalaman_kerja", ""), height=110,
+            )
+            result["pengalaman_organisasi"] = st.text_area(
+                "Pengalaman Organisasi", value=initial.get("pengalaman_organisasi", ""), height=110,
+            )
+            result["portofolio"] = st.text_area(
+                "Proyek / Portofolio", value=initial.get("portofolio", ""), height=110,
+            )
+        with b:
+            result["keahlian"] = st.text_area(
+                "Keahlian Utama", value=initial.get("keahlian", ""), height=110,
+            )
+            result["tools"] = st.text_area(
+                "Tools / Software", value=initial.get("tools", ""), height=110,
+            )
+            result["sertifikasi"] = st.text_area(
+                "Sertifikasi / Pelatihan", value=initial.get("sertifikasi", ""), height=110,
+            )
+        result["link"] = st.text_input("Tautan LinkedIn / Portofolio", value=initial.get("link", ""))
+
+        st.divider()
+        st.markdown("### 04 · Preferensi Magang & Berkas")
+        st.caption("Bidang yang diminati, ketersediaan, dan motivasi magang.")
+        a, b = st.columns(2, gap="large")
+        with a:
+            result["bidang"] = st.text_input("Posisi / Bidang Magang", value=initial.get("bidang", ""))
+            result["wfo"] = _select(
+                "Bersedia WFO", initial.get("wfo", ""),
+                ["", "Ya", "Tidak", "Hybrid", "Negosiasi"],
+            )
+            result["durasi"] = st.number_input(
+                "Durasi (bulan)", min_value=0, max_value=24, step=1,
+                value=min(max(_int(initial.get("durasi")), 0), 24),
+            )
+        with b:
+            result["mulai"] = st.date_input(
+                "Dapat Mulai Tanggal", value=_date(initial.get("mulai")),
+                format="DD/MM/YYYY",
+            )
+            result["status_cv"] = _select(
+                "Status CV / Berkas", initial.get("status_cv", ""),
+                ["", "Lengkap", "Belum Lengkap", "Proses Verifikasi"],
+            )
+        result["motivasi"] = st.text_area(
+            "Motivasi / Harapan Magang", value=initial.get("motivasi", ""), height=105,
+        )
+
+        st.divider()
+        st.markdown("**Selesai mengisi?** Periksa kembali nama, alamat, perguruan tinggi, dan pengalaman sebelum menyimpan.")
+        submitted = st.form_submit_button(
+            "💾 Simpan Perubahan Kandidat" if existing else "💾 Simpan Data Kandidat",
+            type="primary", use_container_width=True,
+        )
+
     if submitted:
         if not result["nama"].strip():
-            st.error("Nama lengkap wajib diisi.")
+            st.error("Nama lengkap wajib diisi sebelum menyimpan.")
         elif not existing and len(C) >= MAX_KANDIDAT:
-            st.error("Kapasitas 150 kandidat telah tercapai pada template Excel ini.")
+            st.error("Kapasitas 150 kandidat pada template ekspor Excel telah tercapai.")
         else:
             result["nama"] = result["nama"].strip()
             result["mulai"] = result["mulai"].isoformat() if result["mulai"] else ""
             try:
+                # One DB write/transaction for all 25 candidate fields.
                 save_candidate(result, create=not existing)
-                C[cid] = result
-                st.success(f"Profil {result['nama']} ({cid}) berhasil disimpan ke PostgreSQL.")
             except DatabaseOperationError as exc:
                 st.error(str(exc))
+            else:
+                st.session_state["candidate_saved_notice"] = (
+                    f"Data {result['nama']} ({cid}) berhasil disimpan lengkap ke PostgreSQL. "
+                    "Anda dapat mengeditnya lagi tanpa membuat ID baru."
+                )
+                st.session_state["candidate_pending_selection"] = cid
+                st.rerun()
+
     st.divider()
     st.subheader("Daftar Kandidat")
     search = st.text_input("Cari nama, kampus, atau posisi", placeholder="Masukkan kata kunci...")
@@ -497,11 +582,20 @@ elif menu == "Data Kandidat":
         if search and search.lower() not in searchable:
             continue
         score, status = calculate(I.get(key), weights, high, mid)
-        table.append({"ID": key, "Nama": val.get("nama", ""), "Perguruan Tinggi": val.get("kampus", ""), "Program Studi": val.get("prodi", ""), "IPK": val.get("ipk", ""), "Posisi": val.get("bidang", ""), "Status Interview": status})
+        table.append({
+            "ID": key,
+            "Nama": val.get("nama", ""),
+            "Perguruan Tinggi": val.get("kampus", ""),
+            "Program Studi": val.get("prodi", ""),
+            "IPK": val.get("ipk", ""),
+            "Posisi": val.get("bidang", ""),
+            "Status Interview": status,
+        })
     if table:
         _shortlist_table(table)
     else:
         st.info("Belum ada data kandidat. Silakan tambah kandidat melalui form di atas.")
+
 
 elif menu == "Penilaian Interview":
     section("INTERVIEW ASSESSMENT", "Penilaian Interview", "Catat hasil wawancara, tentukan skor kompetensi dengan rubrik yang konsisten, kemudian pilih keputusan akhir pewawancara.")
