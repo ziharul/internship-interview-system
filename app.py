@@ -19,6 +19,7 @@ import streamlit as st
 
 from db_store import (
     DatabaseOperationError, configured, load_records, save_candidate, save_interview, import_backup,
+    delete_candidate, reserve_candidate_id,
 )
 
 from data_store import (
@@ -26,7 +27,6 @@ from data_store import (
     DECISIONS,
     MAX_KANDIDAT,
     calculate,
-    candidate_id_next,
     export_xlsx,
     get_rubric_and_questions,
     ranking_rows,
@@ -309,6 +309,48 @@ def show_logout_dialog():
             st.rerun()
 
 
+@st.dialog("Hapus data kandidat", width="small")
+def show_delete_candidate_dialog(candidate_id: str, candidate_name: str):
+    st.warning(
+        f"Anda akan **menghapus permanen** data **{candidate_name} ({candidate_id})**, "
+        "termasuk seluruh nilai dan catatan interview-nya. "
+        "Kandidat tersebut juga akan hilang dari dashboard dan ranking."
+    )
+    st.caption(
+        "Tindakan ini tidak dapat dibatalkan. Jika diperlukan, "
+        "unduh backup Excel sebelum menghapus."
+    )
+    confirmation = f"HAPUS {candidate_id}"
+    typed = st.text_input(
+        f"Untuk konfirmasi, ketik **{confirmation}**",
+        placeholder=confirmation,
+        key=f"delete_confirm_text_{candidate_id}",
+    )
+    cancel, confirm = st.columns(2, gap="small")
+    with cancel:
+        if st.button("Batal", key=f"cancel_delete_{candidate_id}", use_container_width=True):
+            st.rerun()
+    with confirm:
+        if st.button(
+            "Hapus permanen",
+            type="primary",
+            disabled=typed.strip() != confirmation,
+            key=f"confirm_delete_{candidate_id}",
+            use_container_width=True,
+        ):
+            try:
+                delete_candidate(candidate_id, expected_name=candidate_name)
+            except DatabaseOperationError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state["candidate_deleted_notice"] = (
+                    f"Kandidat {candidate_name} ({candidate_id}) dan data interview-nya "
+                    "berhasil dihapus dari PostgreSQL."
+                )
+                st.session_state["candidate_pending_selection"] = "➕ Tambah Kandidat Baru"
+                st.rerun()
+
+
 with st.sidebar:
     st.markdown('<div class="brand"><div class="brand-icon">◈</div><div><div class="brand-title">Internship Hub</div><div class="brand-subtitle">Recruitment & Assessment</div></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-divider"></div><div class="nav-caption">MENU UTAMA</div>', unsafe_allow_html=True)
@@ -438,21 +480,44 @@ elif menu == "Data Kandidat":
     if st.session_state.get("candidate_choice") not in options:
         st.session_state["candidate_choice"] = options[0]
 
-    choice = st.selectbox(
-        "Pilih peserta untuk mengisi atau mengedit data",
-        options,
-        format_func=lambda x: f"{x} — {C[x].get('nama', '')}" if x in C else x,
-        key="candidate_choice",
-    )
+    selector_col, delete_col = st.columns([4, 1], gap="medium", vertical_alignment="bottom")
+    with selector_col:
+        choice = st.selectbox(
+            "Pilih kandidat untuk tambah / edit / hapus data",
+            options,
+            format_func=lambda x: f"{x} — {C[x].get('nama', '')}" if x in C else x,
+            key="candidate_choice",
+        )
     existing = choice in C
-    cid = choice if existing else candidate_id_next(C)
+    if existing:
+        cid = choice
+    else:
+        if "new_candidate_draft_id" not in st.session_state:
+            try:
+                st.session_state["new_candidate_draft_id"] = reserve_candidate_id()
+            except DatabaseOperationError as exc:
+                st.error(str(exc))
+                st.stop()
+        cid = st.session_state["new_candidate_draft_id"]
     initial = C[choice].copy() if existing else {}
+    with delete_col:
+        if st.button(
+            "Hapus Kandidat",
+            icon=":material/delete:",
+            disabled=not existing,
+            help="Hapus kandidat terpilih beserta seluruh hasil interview terkait.",
+            use_container_width=True,
+            key="open_candidate_delete_dialog",
+        ):
+            show_delete_candidate_dialog(cid, initial.get("nama", ""))
+    if message := st.session_state.pop("candidate_deleted_notice", None):
+        st.success(message)
     if message := st.session_state.pop("candidate_saved_notice", None):
         st.success(message)
 
     st.caption(f"ID Kandidat: **{cid}** · Kapasitas ekspor Excel: {len(C)}/{MAX_KANDIDAT}")
     if existing:
-        st.info("Anda sedang membuka profil kandidat yang sudah disimpan. Perbaiki data yang diperlukan, lalu klik **Simpan Perubahan** di bagian akhir formulir.")
+        st.info("**Mode Edit:** Anda sedang membuka profil kandidat yang sudah tersimpan. Ubah nama, alamat, kampus, atau kolom lain yang diperlukan, lalu klik **Simpan Perubahan Kandidat** di bagian akhir. Untuk menghapus profil, gunakan tombol **Hapus Kandidat** di sebelah pemilih peserta.")
     else:
         st.info("Isi seluruh bagian formulir berikut untuk **satu kandidat**. Data baru dikirim ke PostgreSQL setelah Anda menekan **Simpan Data Kandidat** di bagian paling bawah.")
 
@@ -572,6 +637,8 @@ elif menu == "Data Kandidat":
                     "Anda dapat mengeditnya lagi tanpa membuat ID baru."
                 )
                 st.session_state["candidate_pending_selection"] = cid
+                if not existing:
+                    st.session_state.pop("new_candidate_draft_id", None)
                 st.rerun()
 
     st.divider()

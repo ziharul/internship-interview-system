@@ -156,6 +156,84 @@ def save_candidate(record: dict, *, create: bool):
         raise DatabaseOperationError('Data kandidat gagal disimpan. Periksa IPK, semester, tanggal, dan koneksi database.') from exc
 
 
+
+
+def reserve_candidate_id() -> str:
+    """Allocate a never-reused MG-xxx ID using a locked PostgreSQL counter.
+
+    Counter takes account of candidates imported via an Excel backup that may
+    have a higher ID than earlier allocations. Abandoned forms can leave gaps.
+    """
+    statement = """
+        INSERT INTO magang.id_sequences (entity, last_value)
+        VALUES (
+            'kandidat',
+            (SELECT COALESCE(MAX(substring(id FROM 4)::INTEGER), 0) + 1
+             FROM magang.kandidat WHERE id ~ '^MG-[0-9]+$')
+        )
+        ON CONFLICT (entity) DO UPDATE SET
+            last_value = GREATEST(
+                magang.id_sequences.last_value + 1,
+                EXCLUDED.last_value
+            )
+        RETURNING last_value
+    """
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(statement)
+                row = cur.fetchone()
+                return f"MG-{int(row['last_value']):03d}"
+    except psycopg.Error as exc:
+        raise DatabaseOperationError(
+            'Gagal membuat ID baru. Pastikan migrasi_edit_hapus.sql sudah dijalankan di Supabase.'
+        ) from exc
+
+
+def delete_candidate(candidate_id: str, *, expected_name: str) -> None:
+    """Permanently delete one candidate and their interview, atomically.
+
+    The original FK uses ON DELETE RESTRICT, so explicitly delete the interview
+    first in the same transaction. Lock and verify the candidate before deleting.
+    """
+    if not candidate_id or not expected_name:
+        raise DatabaseOperationError('ID dan nama kandidat harus tersedia sebelum menghapus.')
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT nama FROM magang.kandidat WHERE id = %s FOR UPDATE',
+                    (candidate_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise DatabaseOperationError(
+                        'Kandidat tidak ditemukan. Muat ulang daftar dan periksa kembali.'
+                    )
+                if row['nama'] != expected_name:
+                    raise DatabaseOperationError(
+                        'Nama kandidat telah berubah. Muat ulang sebelum menghapus.'
+                    )
+                cur.execute(
+                    'DELETE FROM magang.wawancara WHERE id = %s',
+                    (candidate_id,),
+                )
+                cur.execute(
+                    'DELETE FROM magang.kandidat WHERE id = %s',
+                    (candidate_id,),
+                )
+                if cur.rowcount != 1:
+                    raise DatabaseOperationError(
+                        'Data kandidat tidak ditemukan saat proses penghapusan.'
+                    )
+    except DatabaseOperationError:
+        raise
+    except psycopg.Error as exc:
+        raise DatabaseOperationError(
+            'Gagal menghapus kandidat. Tidak ada perubahan parsial yang disimpan.'
+        ) from exc
+
+
 def _write_interview(cur, record: dict, *, preserve_existing_batch: bool = False):
     fields = INTERVIEW_KEYS
     vals = [_to_interview_value(key, record.get(key)) for key in fields]
