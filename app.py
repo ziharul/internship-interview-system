@@ -6,10 +6,14 @@ Storage: st.session_state + manual Excel import/export; NO server database.
 from __future__ import annotations
 
 import csv
+import html
+import hashlib
 from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 import hmac
+
+import altair as alt
 
 import streamlit as st
 
@@ -34,49 +38,134 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-html, body, [class*="css"], [data-testid="stApp"] { font-family: Inter, sans-serif; }
-[data-testid="stAppViewContainer"] {background: linear-gradient(126deg,#fff 0%,#f7fbff 55%,#eaf3ff 100%);}
-[data-testid="stHeader"] {background: transparent;}
-[data-testid="stSidebar"] {background:#f3f7fd; border-right:1px solid #e3ebf5;}
-.block-container {max-width:1320px; padding-top:2rem; padding-bottom:3rem;}
-h1,h2,h3 {color:#132b4b!important; letter-spacing:-.035em;}
-[data-testid="stMetric"] {background:#fff;border:1px solid #e5edf7;border-radius:14px;padding:16px 20px;box-shadow:0 3px 16px rgba(23,55,102,.04);}
-[data-testid="stMetricValue"] {font-size:1.7rem;color:#183960;}
-[data-testid="stForm"] {background:rgba(255,255,255,.9);padding:20px 24px;border:1px solid #e5edf7;border-radius:16px;}
-[data-testid="stExpander"] {border:1px solid #dbe8f5;border-radius:12px;background:#fff;}
-[data-testid="stDataFrame"] {border-radius:12px;overflow:hidden;}
-.intro {color:#61738d;font-size:1rem;margin:-.35rem 0 1.4rem 0;}
-.kicker {font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:#3469aa;margin-bottom:4px;}
-.tagline {background:#fff;border:1px solid #e2eaf5;border-radius:12px;padding:16px 20px;margin-bottom:18px;}
-.small-label {color:#697b91;font-size:.83rem;}
-hr {border-color:#e5edf7;}
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+:root {--navy:#102743;--muted:#62748a;--line:#e5ebf3;--blue:#3567d8;--pale:#f5f8fd;}
+html,body,[class*="css"],[data-testid="stApp"]{font-family:'DM Sans',sans-serif;color:#1b324d}
+[data-testid="stAppViewContainer"]{background:#f5f8fc}
+[data-testid="stHeader"]{background:#f5f8fc;opacity:.95}
+.block-container{max-width:1380px;padding:2.1rem 2.8rem 3.2rem}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans',sans-serif!important;letter-spacing:-.04em!important;color:#102743!important}
+h1{font-size:2.0rem!important;font-weight:800!important;margin:0 0 .4rem!important}
+h2{font-size:1.35rem!important}h3{font-size:1.12rem!important}
+p{line-height:1.6}
+[data-testid="stSidebar"]{background:#fff;border-right:1px solid #e4eaf2}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:.6rem}
+[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]{padding:10px 10px!important;border-radius:9px!important;margin:1px 0!important}
+[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked){background:#edf3ff!important;color:#254da8!important;font-weight:700}
+[data-testid="stSidebar"] [data-testid="stFileUploader"]{background:#f7f9fc;border-radius:12px;border:1px dashed #c9d5e6;padding:5px}
+[data-testid="stForm"]{background:#fff;border:1px solid #e2eaf3;border-radius:18px;padding:24px 28px;box-shadow:0 8px 28px rgba(27,60,104,.025)}
+[data-testid="stExpander"]{border-radius:12px;border:1px solid #e4ebf3;background:#fff}
+[data-testid="stDataFrame"]{border:1px solid #e7edf3;border-radius:13px;overflow:hidden;background:#fff}
+[data-testid="stTabs"] [data-baseweb="tab-list"]{gap:10px}
+[data-testid="stTabs"] [data-baseweb="tab"]{border-radius:9px 9px 0 0;padding:10px 14px;font-weight:600}
+[data-testid="stButton"] button,[data-testid="stFormSubmitButton"] button,[data-testid="stDownloadButton"] button{border-radius:10px;font-weight:700;min-height:42px}
+[data-testid="stButton"] button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"],[data-testid="stDownloadButton"] button[kind="primary"]{background:#315fd4;border:1px solid #315fd4;color:#fff}
+[data-testid="stButton"] button[kind="primary"]:hover,[data-testid="stFormSubmitButton"] button[kind="primary"]:hover{background:#214aae;border-color:#214aae}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stTextArea"] textarea{border-radius:9px}
+[data-testid="stAlert"]{border-radius:12px}
+[data-testid="stMetric"]{border-radius:13px;border:1px solid var(--line);background:#fff;padding:17px 18px}
+[data-testid="stMetricValue"]{color:var(--navy);font-weight:800!important}
+.kicker{font-size:.72rem;font-weight:800;letter-spacing:.145em;color:#3567d8;text-transform:uppercase;margin-bottom:9px}
+.intro{color:#63758a;font-size:.95rem;margin:0 0 1.55rem;max-width:780px}
+.topline{display:flex;justify-content:space-between;align-items:center;margin:0 0 20px}
+.topline .workspace{font-size:.77rem;font-weight:800;color:#607991;letter-spacing:.13em;text-transform:uppercase}
+.topline .availability{background:#e7f7f1;color:#117e62;font-size:.73rem;font-weight:800;padding:7px 13px;border:1px solid #c7eddf;border-radius:90px}
+.brand{display:flex;align-items:center;gap:11px;margin:12px 0 6px}
+.brand-icon{width:42px;height:42px;background:linear-gradient(140deg,#2454bc,#3d7fe7);color:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:23px;box-shadow:0 5px 15px #2f61c122}
+.brand-title{font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;color:#102743;font-weight:800;line-height:1.35}
+.brand-subtitle{font-size:.74rem;color:#8492a4;margin-top:4px}
+.nav-caption{font-size:.68rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#8a99ab;margin:16px 0 4px}
+.hero{background:linear-gradient(111deg,#102947 0%,#183e71 58%,#2857a0 100%);border-radius:19px;padding:32px 36px 35px;display:flex;justify-content:space-between;align-items:center;gap:26px;overflow:hidden;position:relative;margin-bottom:23px;box-shadow:0 14px 34px #12335d15}
+.hero:after{content:'';position:absolute;right:-115px;top:-105px;width:380px;height:380px;border:1px solid #ffffff2e;border-radius:50%;box-shadow:0 0 0 55px #ffffff07,0 0 0 112px #ffffff05}
+.hero-main{position:relative;z-index:1;max-width:680px}
+.hero .eyebrow{font-size:.72rem;color:#c3dcff;letter-spacing:.16em;font-weight:800;margin-bottom:11px}
+.hero h1{font-size:2rem!important;line-height:1.25;color:#fff!important;margin:0 0 12px!important}
+.hero p{color:#d1e0f4;font-size:.92rem;margin:0;max-width:570px}
+.hero-right{z-index:1;flex-shrink:0;min-width:178px;border:1px solid #ffffff35;border-radius:14px;background:#ffffff13;padding:17px 20px}
+.hero-right .count{font-size:1.6rem;font-weight:800;line-height:1.2;color:#fff}
+.hero-right .tiny{font-size:.76rem;color:#d1e0f4}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:0 0 30px}
+.stat{background:#fff;border:1px solid #e1eaf4;border-radius:15px;padding:19px 20px 17px;box-shadow:0 6px 25px #1c4a7807;min-width:0}
+.stat-head{display:flex;align-items:center;justify-content:space-between;gap:7px}
+.stat-label{color:#687b91;font-size:.78rem;font-weight:600}
+.stat-icon{height:34px;width:34px;border-radius:10px;background:#eef3ff;color:#3265d4;display:flex;align-items:center;justify-content:center;font-size:19px}
+.stat-value{color:#112b4c;font-family:'Plus Jakarta Sans',sans-serif;font-size:2rem;letter-spacing:-.05em;font-weight:800;margin-top:11px;line-height:1.2}
+.stat-foot{color:#8494a6;font-size:.72rem;margin-top:7px}
+.section-heading{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.18rem;font-weight:800;color:#12304f;margin:2px 0 14px}
+.panel{background:white;border:1px solid #e2eaf3;border-radius:16px;padding:22px 23px;margin-bottom:17px;box-shadow:0 7px 28px #1a487305}
+.panel-title{font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;color:#14304c;font-size:1rem;margin:0 0 6px}
+.panel-desc{font-size:.77rem;color:#8190a2;margin-bottom:20px}
+.status-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid #edf1f5;gap:10px}
+.status-row:last-child{border-bottom:none}
+.status-meta{display:flex;align-items:center;gap:10px;font-size:.83rem;font-weight:600;color:#405873}
+.dot{width:9px;height:9px;border-radius:99px;flex-shrink:0}
+.count-pill{background:#f0f4f9;color:#24415f;padding:5px 10px;font-weight:800;font-size:.8rem;border-radius:8px}
+.progress-track{height:9px;border-radius:99px;background:#e8eef7;overflow:hidden;margin-top:12px}
+.progress-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#2d65d6,#63a3f5)}
+.progress-caption{display:flex;justify-content:space-between;color:#7488a0;font-size:.76rem;margin-top:9px}
+.empty-box{background:#f8faff;border:1px dashed #cfdded;border-radius:13px;padding:23px;text-align:center;color:#73879b;font-size:.84rem;line-height:1.7;margin:5px 0}
+.step{display:flex;align-items:flex-start;gap:12px;padding:11px 0}
+.step-num{flex:0 0 28px;height:28px;border-radius:9px;background:#edf3ff;color:#3867cf;font-weight:800;font-size:.81rem;display:flex;align-items:center;justify-content:center}
+.step-body{font-size:.86rem;color:#31516e;line-height:1.4}
+.step-body small{display:block;color:#8998aa;margin-top:4px;font-size:.76rem}
+.podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.podium-item{background:#fff;border:1px solid #e3eaf2;border-radius:14px;padding:19px 17px;min-width:0}
+.podium-rank{font-size:.74rem;letter-spacing:.08em;font-weight:800;color:#5b7db4;margin-bottom:9px}
+.podium-name{font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;font-weight:800;color:#193553;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.podium-meta{font-size:.77rem;color:#8190a3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+.podium-score{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.6rem;font-weight:800;color:#2f62d3;margin-top:13px}
+.podium-score span{font-size:.8rem;color:#8596ac}
+.login-shell{max-width:490px;margin:45px auto 0;padding:0 7px}
+.login-icon{width:60px;height:60px;display:flex;align-items:center;justify-content:center;background:linear-gradient(120deg,#2359c1,#5290ef);color:#fff;border-radius:17px;margin:0 auto 18px;font-size:30px;box-shadow:0 13px 24px #2f66ca2b}
+.login-title{text-align:center;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.7rem;font-weight:800;color:#12304d;margin-bottom:10px}
+.login-desc{text-align:center;color:#75869b;font-size:.91rem;margin-bottom:26px}
+.login-footer{text-align:center;color:#8494a7;font-size:.73rem;margin:17px 0}
+@media(max-width:1000px){.block-container{padding:1.7rem 1rem 2.5rem}.stats{grid-template-columns:repeat(2,1fr)}.hero{padding:23px;display:block}.hero-right{display:none}}
+@media(max-width:520px){.stats{grid-template-columns:1fr 1fr;gap:8px}.stat{padding:13px}.stat-value{font-size:1.5rem}.podium{grid-template-columns:1fr}.hero h1{font-size:1.55rem!important}}
 </style>
 """, unsafe_allow_html=True)
 
 
-def app_password() -> str:
+def secret(name: str) -> str:
     try:
-        return str(st.secrets.get("APP_PASSWORD", ""))
-    except Exception:
+        return str(st.secrets.get(name, "")).strip()
+    except Exception:  # No secrets file, unavailable secrets, or platform configuration issue.
         return ""
 
 
-PASSWORD = app_password()
-if PASSWORD:
-    if not st.session_state.get("authenticated", False):
-        st.title("🔐 Akses Pewawancara")
-        st.caption("Masukkan sandi untuk membuka sistem seleksi magang.")
-        with st.form("login"):
-            password_entered = st.text_input("Sandi aplikasi", type="password")
-            submitted_login = st.form_submit_button("Masuk", type="primary")
-        if submitted_login:
-            if hmac.compare_digest(password_entered, PASSWORD):
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("Sandi tidak sesuai.")
+APP_USERNAME = secret("APP_USERNAME")
+APP_PASSWORD = secret("APP_PASSWORD")
+
+# Fail closed: no candidate/profile screen may render until credentials are configured.
+if not APP_USERNAME or not APP_PASSWORD:
+    st.markdown('<div class="login-shell"><div class="login-icon">🔐</div><div class="login-title">Akses belum dikonfigurasi</div><div class="login-desc">Atur APP_USERNAME dan APP_PASSWORD di Streamlit Cloud → Settings → Secrets. Data kandidat tidak ditampilkan sebelum akses aktif.</div></div>', unsafe_allow_html=True)
+    st.code('APP_USERNAME = "nama_akun_pewawancara"\nAPP_PASSWORD = "password_kuat_dan_unik"', language="toml")
+    st.stop()
+
+credential_revision = hashlib.sha256(f"{APP_USERNAME}\0{APP_PASSWORD}".encode()).hexdigest()
+if st.session_state.get("authenticated_revision") != credential_revision:
+    st.session_state["authenticated"] = False
+
+if not st.session_state.get("authenticated", False):
+    st.markdown('<div class="login-shell"><div class="login-icon">🔐</div><div class="login-title">Selamat datang kembali</div><div class="login-desc">Masuk untuk mengelola data peserta magang, melakukan interview, dan melihat hasil seleksi.</div></div>', unsafe_allow_html=True)
+    if st.session_state.get("failed_logins", 0) >= 5:
+        st.error("Terlalu banyak percobaan pada sesi ini. Tutup sesi browser dan coba kembali. Untuk proteksi lebih kuat, gunakan autentikasi akun organisasi (SSO/OIDC).")
         st.stop()
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Username", placeholder="Masukkan username", autocomplete="username")
+        password = st.text_input("Password", type="password", placeholder="Masukkan password", autocomplete="current-password")
+        login_submit = st.form_submit_button("Masuk ke Sistem  →", type="primary", use_container_width=True)
+    if login_submit:
+        if hmac.compare_digest(username, APP_USERNAME) and hmac.compare_digest(password, APP_PASSWORD):
+            st.session_state["authenticated"] = True
+            st.session_state["authenticated_revision"] = credential_revision
+            st.session_state["failed_logins"] = 0
+            st.rerun()
+        else:
+            st.session_state["failed_logins"] = st.session_state.get("failed_logins", 0) + 1
+            st.error("Username atau password tidak sesuai.")
+    st.markdown('<div class="login-footer">INTERNAL RECRUITMENT PORTAL · AKSES TERBATAS</div>', unsafe_allow_html=True)
+    st.stop()
 
 if "candidates" not in st.session_state:
     st.session_state["candidates"] = {}
@@ -96,9 +185,25 @@ ranked = ranking_rows(C, I, weights, high, mid)
 
 
 def section(kicker: str, title: str, description: str):
-    st.markdown(f'<div class="kicker">{kicker}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kicker">{html.escape(kicker)}</div>', unsafe_allow_html=True)
     st.title(title)
-    st.markdown(f'<div class="intro">{description}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="intro">{html.escape(description)}</div>', unsafe_allow_html=True)
+
+
+def metric_card(label: str, value: str, note: str, icon: str):
+    st.markdown(f"""<div class="stat"><div class="stat-head"><div class="stat-label">{html.escape(label)}</div><div class="stat-icon">{icon}</div></div><div class="stat-value">{html.escape(str(value))}</div><div class="stat-foot">{html.escape(note)}</div></div>""", unsafe_allow_html=True)
+
+
+def blank_state(message: str):
+    st.markdown(f'<div class="empty-box">{html.escape(message)}</div>', unsafe_allow_html=True)
+
+
+def status_row(label: str, count: int, color: str):
+    st.markdown(f'<div class="status-row"><div class="status-meta"><span class="dot" style="background:{color}"></span>{html.escape(label)}</div><span class="count-pill">{count}</span></div>', unsafe_allow_html=True)
+
+
+def panel_head(title: str, subtitle: str):
+    st.markdown(f'<div class="panel-title">{html.escape(title)}</div><div class="panel-desc">{html.escape(subtitle)}</div>', unsafe_allow_html=True)
 
 
 def _date(text):
@@ -138,45 +243,55 @@ def _shortlist_table(records: list[dict]):
 
 
 with st.sidebar:
-    st.markdown("### 📋 Internship Recruitment")
-    st.caption("Pendataan & Penilaian Interview")
-    st.divider()
+    st.markdown('<div class="brand"><div class="brand-icon">◈</div><div><div class="brand-title">Internship Hub</div><div class="brand-subtitle">Recruitment & Assessment</div></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="nav-caption">WORKSPACE MENU</div>', unsafe_allow_html=True)
     menu = st.radio(
         "NAVIGASI",
         ["Mulai di Sini", "Data Kandidat", "Penilaian Interview", "Summary & Ranking", "Panduan & Rubrik"],
         key="page",
+        label_visibility="collapsed",
+        format_func=lambda x: {
+            "Mulai di Sini": "▦   Dashboard",
+            "Data Kandidat": "♙   Data Kandidat",
+            "Penilaian Interview": "▤   Penilaian Interview",
+            "Summary & Ranking": "◫   Summary & Ranking",
+            "Panduan & Rubrik": "☷   Panduan & Rubrik",
+        }[x],
     )
     st.divider()
-    st.markdown("**Data & Backup**")
-    uploaded = st.file_uploader("Impor data dari template Excel", type=["xlsx"], help="Memuat file akan mengganti data di sesi ini. Simpan hasil sebelumnya terlebih dahulu.")
-    if uploaded is not None:
-        if st.button("Muat Data Excel", use_container_width=True):
+    st.markdown('<div class="nav-caption">DATA MANAGEMENT</div>', unsafe_allow_html=True)
+    with st.expander("📁 Impor / Ekspor Data", expanded=True):
+        uploaded = st.file_uploader("Impor Excel", type=["xlsx"], help="Mengganti seluruh data pada sesi ini. Unduh backup terlebih dahulu.")
+        if uploaded is not None and st.button("Muat Data Excel", use_container_width=True):
             try:
                 new_c, new_i = read_xlsx(uploaded.getvalue())
                 st.session_state["candidates"] = new_c
                 st.session_state["interviews"] = new_i
-                st.success(f"{len(new_c)} kandidat dan {len(new_i)} hasil interview berhasil dimuat.")
+                st.success(f"{len(new_c)} kandidat dan {len(new_i)} hasil interview dimuat.")
                 st.rerun()
             except Exception as exc:
                 st.error(f"Impor gagal: {exc}")
-    try:
-        excel_bytes = export_xlsx(C, I)
-        st.download_button(
-            "⬇️ Download Backup Excel",
-            data=excel_bytes,
-            file_name=f"Hasil_Interview_Magang_{date.today().isoformat()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary",
-        )
-    except ValueError as exc:
-        st.error(str(exc))
-    st.caption("Belum memakai database. Data baru tersimpan permanen setelah file Excel diunduh.")
-    if not PASSWORD:
-        st.warning("Belum ada sandi akses. Jika aplikasi dipublikasikan, atur APP_PASSWORD di Streamlit Secrets dan batasi pembagian tautan.")
-    elif st.button("Keluar", use_container_width=True):
-        st.session_state["authenticated"] = False
-        st.rerun()
+        try:
+            excel_bytes = export_xlsx(C, I)
+            st.download_button(
+                "⬇  Download Backup Excel",
+                data=excel_bytes,
+                file_name=f"Hasil_Interview_Magang_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary",
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+        st.caption("Tanpa database: unduh Excel sebelum menutup atau memuat ulang sesi.")
+    st.divider()
+    st.markdown('<div class="nav-caption">AKUN PEWAWANCARA</div>', unsafe_allow_html=True)
+    st.caption(f"Masuk sebagai **{APP_USERNAME}**")
+    with st.popover("🔒  Keluar dari Sistem", use_container_width=True):
+        st.warning("Jika ada data baru, unduh Backup Excel sebelum keluar. Data sesi yang belum diekspor akan hilang.")
+        if st.button("Konfirmasi Keluar", type="primary", use_container_width=True):
+            st.session_state.clear()  # Clear all candidate details from shared-browser session.
+            st.rerun()
 
 # Data may have been replaced in the sidebar by an import. Rebind to the newest dict.
 C = st.session_state["candidates"]
@@ -184,35 +299,58 @@ I = st.session_state["interviews"]
 ranked = ranking_rows(C, I, weights, high, mid)
 
 if menu == "Mulai di Sini":
-    section("OVERVIEW", "Dashboard Interview Peserta Magang", "Ringkasan jumlah kandidat dan hasil penilaian, mengikuti struktur sheet 'Mulai di Sini' pada template Excel.")
     fully_scored = len(ranked)
     recommended = sum(r["Rekomendasi"] == "Direkomendasikan" for r in ranked)
+    pending = len(C) - fully_scored
     avg = sum(r["Skor"] for r in ranked) / fully_scored if fully_scored else 0
-    cols = st.columns(4)
-    for col, label, val in zip(cols, ["Total Pelamar", "Sudah Dinilai", "Direkomendasikan", "Rata-rata Nilai"], [len(C), fully_scored, recommended, f"{avg:.1f}/100"]):
-        with col:
-            st.metric(label, val)
-    st.write("")
-    left, right = st.columns([1.35, 1], gap="large")
+    rate = (fully_scored / len(C) * 100) if C else 0
+
+    st.markdown('<div class="topline"><span class="workspace">RECRUITMENT / OVERVIEW</span><span class="availability">● Workspace aktif</span></div>', unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero"><div class="hero-main"><div class="eyebrow">INTERNSHIP RECRUITMENT  ·  2026</div><h1>Kelola kandidat.<br>Temukan talenta terbaik.</h1><p>Satu ruang kerja untuk pendataan peserta magang, wawancara, evaluasi kompetensi, dan pemeringkatan kandidat yang objektif.</p></div><div class="hero-right"><div class="tiny">Progress Interview</div><div class="count">{rate:.0f}%</div><div class="tiny">{fully_scored} dari {len(C)} peserta dinilai</div></div></div>""", unsafe_allow_html=True)
+
+    c1,c2,c3,c4 = st.columns(4, gap="medium")
+    with c1: metric_card("Total Kandidat", len(C), "Terdaftar dalam sistem", "♙")
+    with c2: metric_card("Interview Selesai", fully_scored, "Seluruh aspek telah dinilai", "✓")
+    with c3: metric_card("Direkomendasikan", recommended, "Berdasarkan skor otomatis", "✦")
+    with c4: metric_card("Rata-rata Skor", f"{avg:.1f}", "Dari total 100 poin", "◈")
+
+    left,right = st.columns([1.25,1], gap="large")
     with left:
-        st.subheader("Ringkasan Rekomendasi")
-        statuses = ["Direkomendasikan", "Dipertimbangkan", "Belum Direkomendasikan"]
-        totals = {s: sum(r["Rekomendasi"] == s for r in ranked) for s in statuses}
-        st.dataframe([{"Hasil Sistem": label, "Jumlah": totals[label]} for label in statuses], hide_index=True, use_container_width=True)
-        st.subheader("Keputusan Akhir")
-        decisions = ["Lolos", "Cadangan", "Tidak Lolos", "Menunggu"]
-        st.dataframe([{"Keputusan Pewawancara": x, "Jumlah": sum((I.get(cid, {}).get("keputusan") or "Menunggu") == x for cid in C)} for x in decisions], hide_index=True, use_container_width=True)
+        st.markdown('<div class="section-heading">Monitoring Seleksi</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            panel_head("Progres Interview", "Pemantauan kelengkapan proses penilaian")
+            st.markdown(f'<div style="font-family:Plus Jakarta Sans,sans-serif;font-size:2rem;font-weight:800;color:#12304d">{fully_scored}<span style="font-size:.95rem;color:#8497aa;font-weight:500"> / {len(C)} kandidat</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="progress-track"><div class="progress-fill" style="width:{rate:.2f}%"></div></div><div class="progress-caption"><span>{rate:.0f}% selesai</span><span>{pending} belum lengkap</span></div>', unsafe_allow_html=True)
+            st.write("")
+            status_row("Interview selesai", fully_scored, "#23b38c")
+            status_row("Belum lengkap / belum mulai", pending, "#f0ab48")
+            status_row("Total data peserta", len(C), "#426bd4")
+        with st.container(border=True):
+            panel_head("Kandidat Berperingkat", "Skor tertinggi dari hasil interview lengkap")
+            if ranked:
+                for r in ranked[:5]:
+                    st.markdown(f'<div class="status-row"><div class="status-meta"><span class="count-pill">#{r["Ranking"]}</span>{html.escape(r["Nama Kandidat"][:46])}</div><span style="font-weight:800;color:#2657b7">{r["Skor"]:.1f}</span></div>', unsafe_allow_html=True)
+            else:
+                blank_state("Peringkat akan muncul setelah penilaian tujuh aspek pertama selesai.")
     with right:
-        st.subheader("Kandidat Teratas")
-        if ranked:
-            st.dataframe([{"Ranking": r["Ranking"], "Nama": r["Nama Kandidat"], "Skor": r["Skor"]} for r in ranked[:8]], hide_index=True, use_container_width=True)
-        else:
-            st.info("Belum ada kandidat dengan tujuh aspek penilaian yang lengkap.")
-        st.subheader("Alur Penggunaan")
-        st.markdown("**1. Data Kandidat** → simpan profil peserta.\n\n**2. Penilaian Interview** → isi tujuh nilai dan catatan.\n\n**3. Summary & Ranking** → bandingkan hasil.\n\n**4. Download Backup Excel** → simpan seluruh data.")
+        st.markdown('<div class="section-heading">Ringkasan Keputusan</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            panel_head("Rekomendasi Otomatis", "Hasil sistem berdasarkan bobot pada template Excel")
+            status_row("Direkomendasikan", recommended, "#23b38c")
+            status_row("Dipertimbangkan", sum(r["Rekomendasi"] == "Dipertimbangkan" for r in ranked), "#e0a23a")
+            status_row("Belum Direkomendasikan", sum(r["Rekomendasi"] == "Belum Direkomendasikan" for r in ranked), "#eb7180")
+        with st.container(border=True):
+            panel_head("Keputusan Pewawancara", "Hasil final yang ditetapkan secara manual")
+            for label,color in [("Lolos","#23b38c"),("Cadangan","#e0a23a"),("Tidak Lolos","#eb7180"),("Menunggu","#94a3b8")]:
+                status_row(label, sum((I.get(cid,{ }).get("keputusan") or "Menunggu") == label for cid in C), color)
+        with st.container(border=True):
+            panel_head("Langkah Selanjutnya", "Ikuti alur yang terstruktur")
+            for no,title,desc in [("01","Daftarkan kandidat","Input identitas, perguruan tinggi dan pengalaman"),("02","Lakukan interview","Isi jawaban, catatan, dan tujuh aspek nilai"),("03","Tinjau hasil","Bandingkan ranking dan putuskan status akhir")]:
+                st.markdown(f'<div class="step"><div class="step-num">{no}</div><div class="step-body"><b>{title}</b><small>{desc}</small></div></div>', unsafe_allow_html=True)
+    st.caption("Data hanya tersimpan dalam sesi aktif. Gunakan Download Backup Excel untuk menyimpan hasil sebelum menutup aplikasi.")
 
 elif menu == "Data Kandidat":
-    section("PROFIL PESERTA", "Data Kandidat", "Form menggantikan 25 kolom pada sheet Data Kandidat. Satu peserta menggunakan satu ID MG-xxx.")
+    section("CANDIDATE DATABASE", "Data Kandidat", "Kelola profil peserta magang dalam satu formulir terstruktur: identitas, pendidikan, kompetensi, dan ketersediaan magang.")
     options = ["➕ Tambah Kandidat Baru"] + sorted(C.keys())
     choice = st.selectbox("Pilih kandidat untuk dilihat/diedit", options, format_func=lambda x: f"{x} — {C[x].get('nama','')}" if x in C else x)
     existing = choice in C
@@ -289,7 +427,7 @@ elif menu == "Data Kandidat":
         st.info("Belum ada data kandidat. Silakan tambah kandidat melalui form di atas.")
 
 elif menu == "Penilaian Interview":
-    section("WAWANCARA & ASESMEN", "Penilaian Interview", "Pilih kandidat yang sudah didaftarkan, beri nilai 1–5 pada setiap aspek dan tuliskan hasil wawancara.")
+    section("INTERVIEW ASSESSMENT", "Penilaian Interview", "Catat hasil wawancara, tentukan skor kompetensi dengan rubrik yang konsisten, kemudian pilih keputusan akhir pewawancara.")
     if not C:
         st.info("Belum ada kandidat. Isi menu Data Kandidat terlebih dahulu.")
     else:
@@ -357,50 +495,72 @@ elif menu == "Penilaian Interview":
                 st.caption(f"Pendalaman: {q['pendalaman']} · Fokus: {q['dinilai']}")
 
 elif menu == "Summary & Ranking":
-    section("HASIL SELEKSI", "Summary & Ranking", "Ranking dihitung berdasarkan bobot dari template Excel. Hanya kandidat dengan tujuh nilai lengkap yang masuk peringkat.")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Kandidat", len(C))
-    c2.metric("Sudah Dinilai", len(ranked))
-    c3.metric("Belum Lengkap", len(C) - len(ranked))
-    c4.metric("Nilai Tertinggi", f"{ranked[0]['Skor']:.1f}" if ranked else "—")
-    if not ranked:
-        st.info("Belum ada ranking. Input data kandidat dan lengkapi tujuh aspek nilai di menu Penilaian Interview.")
-    else:
-        st.subheader("Peringkat Kandidat")
-        f1, f2 = st.columns(2)
+    section("EVALUATION / ANALYTICS", "Summary & Ranking Kandidat", "Pantau hasil wawancara, bandingkan skor, dan susun shortlist berdasarkan bobot penilaian yang sama dengan template Excel.")
+    total = len(C)
+    # Use columns so cards remain responsive in Streamlit layout.
+    c1,c2,c3,c4 = st.columns(4, gap="medium")
+    with c1: metric_card("Total Kandidat",total,"Seluruh peserta terdaftar","♙")
+    with c2: metric_card("Dinilai Lengkap",len(ranked),"Sudah masuk ranking","✓")
+    with c3: metric_card("Belum Lengkap",total-len(ranked),"Butuh tindak lanjut","◷")
+    with c4: metric_card("Skor Tertinggi",f"{ranked[0]['Skor']:.1f}" if ranked else "—","Nilai maksimum 100","✦")
+
+    if ranked:
+        st.markdown('<div class="section-heading">Top Kandidat</div>',unsafe_allow_html=True)
+        podium = []
+        for idx,r in enumerate(ranked[:3]):
+            medal = ["01 / TOP SCORE","02 / RUNNER UP","03 / TOP 3"][idx]
+            podium.append(f'<div class="podium-item"><div class="podium-rank">{medal}</div><div class="podium-name">{html.escape(str(r["Nama Kandidat"]))}</div><div class="podium-meta">{html.escape(str(r["Perguruan Tinggi"]))}</div><div class="podium-score">{r["Skor"]:.1f}<span> / 100</span></div></div>')
+        st.markdown('<div class="podium">'+''.join(podium)+'</div>',unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">Perbandingan Skor</div>',unsafe_allow_html=True)
+        plot = [{"Nama":r["Nama Kandidat"],"Skor":r["Skor"],"Rekomendasi":r["Rekomendasi"]} for r in ranked[:12]]
+        palette = alt.Scale(domain=["Direkomendasikan","Dipertimbangkan","Belum Direkomendasikan"], range=["#315fd4","#e0a23a","#e77e85"])
+        chart = (alt.Chart(alt.Data(values=plot)).mark_bar(cornerRadiusEnd=6,size=20)
+            .encode(x=alt.X("Skor:Q",scale=alt.Scale(domain=[0,100]),title="Nilai / 100"),
+                    y=alt.Y("Nama:N",sort="-x",title=None),
+                    color=alt.Color("Rekomendasi:N",scale=palette,legend=alt.Legend(orient="bottom")),
+                    tooltip=[alt.Tooltip("Nama:N"),alt.Tooltip("Skor:Q",format=".1f"),"Rekomendasi:N"])
+            .properties(height=max(220,len(plot)*36),background="#ffffff").configure_view(stroke=None)
+            .configure_axis(labelColor="#5c6e86",titleColor="#5c6e86",gridColor="#eaf0f6"))
+        with st.container(border=True):
+            st.altair_chart(chart,use_container_width=True)
+        st.markdown('<div class="section-heading">Tabel Peringkat Lengkap</div>',unsafe_allow_html=True)
+        f1,f2 = st.columns(2)
         with f1:
-            cats = ["Semua", "Direkomendasikan", "Dipertimbangkan", "Belum Direkomendasikan"]
-            reco_filter = st.selectbox("Filter rekomendasi", cats)
+            cats=["Semua","Direkomendasikan","Dipertimbangkan","Belum Direkomendasikan"]
+            reco_filter=st.selectbox("Filter rekomendasi",cats)
         with f2:
-            positions = sorted({str(r["Posisi Magang"]) for r in ranked if str(r["Posisi Magang"]).strip()})
-            pos_filter = st.selectbox("Filter posisi magang", ["Semua", *positions])
-        filtered = [r for r in ranked if (reco_filter == "Semua" or r["Rekomendasi"] == reco_filter) and (pos_filter == "Semua" or r["Posisi Magang"] == pos_filter)]
-        ordered_keys = ["Ranking", "ID", "Nama Kandidat", "Perguruan Tinggi", "Program Studi", "Posisi Magang", "IPK", "Skor", "Rekomendasi", "Keputusan Akhir"]
-        st.dataframe([{k: r[k] for k in ordered_keys} for r in filtered], use_container_width=True, hide_index=True)
-        st.caption("Peringkat tetap mengikuti seluruh kandidat yang telah dinilai, meskipun tabel sedang difilter. Nilai sama memperoleh ranking yang sama.")
+            positions=sorted({str(r["Posisi Magang"]) for r in ranked if str(r["Posisi Magang"]).strip()})
+            pos_filter=st.selectbox("Filter posisi magang",["Semua",*positions])
+        filtered=[r for r in ranked if (reco_filter=="Semua" or r["Rekomendasi"]==reco_filter) and (pos_filter=="Semua" or r["Posisi Magang"]==pos_filter)]
+        keys=["Ranking","ID","Nama Kandidat","Perguruan Tinggi","Program Studi","Posisi Magang","IPK","Skor","Rekomendasi","Keputusan Akhir"]
+        st.dataframe([{k:r[k] for k in keys} for r in filtered],use_container_width=True,hide_index=True,
+                     column_config={"Skor":st.column_config.ProgressColumn("Skor",min_value=0,max_value=100,format="%.1f")})
+        st.caption("Peringkat dihitung dari seluruh kandidat yang dinilai lengkap. Bila nilainya sama, peringkat sama. Keputusan akhir tetap ditetapkan pewawancara.")
         if filtered:
-            st.subheader("Grafik Perbandingan Nilai")
-            chart = [{"Kandidat": f"{r['Ranking']}. {r['Nama Kandidat'][:25]}", "Nilai": r["Skor"]} for r in filtered[:12]]
-            st.bar_chart(chart, x="Kandidat", y="Nilai", horizontal=True)
-            stream = StringIO()
-            writer = csv.DictWriter(stream, fieldnames=ordered_keys)
+            stream=StringIO()
+            writer=csv.DictWriter(stream,fieldnames=keys)
             writer.writeheader()
-            for r in filtered:
-                writer.writerow({k: r[k] for k in ordered_keys})
-            st.download_button("⬇️ Download Ranking (CSV)", stream.getvalue().encode("utf-8-sig"), file_name="ranking_peserta_magang.csv", mime="text/csv")
+            for r in filtered: writer.writerow({k:r[k] for k in keys})
+            st.download_button("⬇  Download Ranking (CSV)",stream.getvalue().encode("utf-8-sig"),file_name="ranking_peserta_magang.csv",mime="text/csv")
+    else:
+        blank_state("Belum tersedia ranking. Tambahkan kandidat, kemudian lengkapi tujuh aspek penilaian melalui menu Penilaian Interview.")
+
     st.divider()
-    st.subheader("Progress Wawancara Semua Kandidat")
-    progresses = []
-    for cid, p in sorted(C.items()):
-        interview = I.get(cid)
-        sc, reco = calculate(interview, weights, high, mid)
-        filled = sum(1 for key, _, _ in ASPEK if interview and interview.get(key) in range(1,6))
-        progresses.append({"ID": cid, "Nama": p.get("nama", ""), "Aspek Dinilai": f"{filled}/7", "Status": "Selesai" if sc is not None else ("Draft" if interview else "Belum Interview"), "Skor": sc, "Keputusan": (interview or {}).get("keputusan", "—")})
+    st.markdown('<div class="section-heading">Status Seluruh Kandidat</div>',unsafe_allow_html=True)
+    progresses=[]
+    for cid,p in sorted(C.items()):
+        interview=I.get(cid)
+        sc,reco=calculate(interview,weights,high,mid)
+        filled=sum(1 for key,_,_ in ASPEK if interview and interview.get(key) in range(1,6))
+        progresses.append({"ID":cid,"Nama":p.get("nama",""),"Aspek Dinilai":filled,"Status":"Selesai" if sc is not None else ("Draft" if interview else "Belum Interview"),"Skor":sc,"Keputusan":(interview or {}).get("keputusan","—")})
     if progresses:
-        st.dataframe(progresses, use_container_width=True, hide_index=True)
+        st.dataframe(progresses,use_container_width=True,hide_index=True,
+                     column_config={"Aspek Dinilai":st.column_config.ProgressColumn("Aspek Dinilai",min_value=0,max_value=7,format="%d/7")})
+    else:
+        blank_state("Data peserta belum tersedia. Silakan mulai melalui menu Data Kandidat.")
 
 elif menu == "Panduan & Rubrik":
-    section("STANDAR EVALUASI", "Panduan & Rubrik", "Materi ini diambil langsung dari sheet Panduan & Rubrik pada template Excel, sehingga aspek, bobot, dan ambang nilai tetap konsisten.")
+    section("ASSESSMENT GUIDELINES", "Panduan & Rubrik", "Referensi pewawancara: bobot kompetensi, skala nilai, dan pertanyaan yang digunakan secara konsisten untuk setiap peserta.")
     st.subheader("Bobot dan Fokus Penilaian")
     focus = [
         "Menyampaikan gagasan secara jelas dan menjawab pertanyaan dengan runtut.",
