@@ -57,11 +57,32 @@ ASPEK = [
 ]
 
 INTERVIEW_FIELDS = [
-    "id", "nama", "bidang", "tanggal", *[s[0] for s in ASPEK],
+    "id", "nama", "bidang", "tanggal", "batch", *[s[0] for s in ASPEK],
     "skor", "rekomendasi", "keputusan", "kelebihan", "peningkatan", "catatan", "pewawancara",
 ]
 
 DECISIONS = ["Menunggu", "Lolos", "Cadangan", "Tidak Lolos"]
+BATCH_PATTERN = re.compile(r"^(\d{4})-B(0[1-9]|[1-4][0-9]|50)$")
+
+
+def make_batch_code(year: int, number: int) -> str:
+    """Stable sortable batch ID; example: 2026-B01."""
+    if not 2020 <= int(year) <= 2100 or not 1 <= int(number) <= 50:
+        raise ValueError("Tahun batch harus 2020–2100 dan nomor batch 1–50.")
+    return f"{int(year):04d}-B{int(number):02d}"
+
+
+def batch_label(code: str | None) -> str:
+    """Human-friendly representation for forms, ranking and Excel export."""
+    if not code:
+        return "Belum ditentukan"
+    match = BATCH_PATTERN.fullmatch(str(code))
+    return f"Batch {int(match.group(2))} — {match.group(1)}" if match else str(code)
+
+
+def parse_batch_code(code: str | None, fallback_year: int) -> tuple[int, int]:
+    match = BATCH_PATTERN.fullmatch(str(code or ""))
+    return (int(match.group(1)), int(match.group(2))) if match else (fallback_year, 1)
 
 
 def _as_text(value: Any) -> str:
@@ -160,19 +181,22 @@ def read_xlsx(source: bytes | str | Path) -> tuple[dict, dict]:
         candidates[cid] = rec
     sh = wb["Penilaian Interview"]
     interviews: dict[str, dict] = {}
-    for row in sh.iter_rows(min_row=7, max_row=max(156, sh.max_row), min_col=1, max_col=18, values_only=True):
+    for row in sh.iter_rows(min_row=7, max_row=max(156, sh.max_row), min_col=1, max_col=19, values_only=True):
         cid = _as_text(row[0])
         if cid not in candidates:
             continue
         rec = {
             "id": cid,
             "tanggal": _as_text(row[3]),
+            "batch": _as_text(row[18]),  # Optional 19th column; old Excel files remain supported.
             "keputusan": _as_text(row[13]) or "Menunggu",
             "kelebihan": _as_text(row[14]),
             "peningkatan": _as_text(row[15]),
             "catatan": _as_text(row[16]),
             "pewawancara": _as_text(row[17]),
         }
+        if rec["batch"] and not BATCH_PATTERN.fullmatch(rec["batch"]):
+            raise ValueError(f"Kode batch di Excel tidak valid untuk {cid}: {rec['batch']}")
         for i, (key, _, _) in enumerate(ASPEK):
             value = _number_or_none(row[4 + i], integer=True)
             rec[key] = value if value in range(1, 6) else 0
@@ -197,10 +221,13 @@ def calculate(interview: dict | None, weights: dict[str, float], high: float, mi
     return score, "Belum Direkomendasikan"
 
 
-def ranking_rows(candidates: dict, interviews: dict, weights: dict, high: float, mid: float):
+def ranking_rows(candidates: dict, interviews: dict, weights: dict, high: float, mid: float, batch_filter: str | None = None):
     results = []
     for cid, person in candidates.items():
         val = interviews.get(cid)
+        # None = all batches; empty string = historical records with no batch.
+        if batch_filter is not None and (val or {}).get("batch", "") != batch_filter:
+            continue
         score, status = calculate(val, weights, high, mid)
         if score is None:
             continue
@@ -212,6 +239,7 @@ def ranking_rows(candidates: dict, interviews: dict, weights: dict, high: float,
             "Posisi Magang": person.get("bidang", ""),
             "IPK": person.get("ipk", ""),
             "Skor": score,
+            "Batch": batch_label((val or {}).get("batch")),
             "Rekomendasi": status,
             "Keputusan Akhir": (val or {}).get("keputusan") or "Menunggu",
             "Tanggal Interview": (val or {}).get("tanggal", ""),
@@ -248,7 +276,15 @@ def export_xlsx(candidates: dict, interviews: dict) -> bytes:
                 value = _safe_cell(value) if value else None
             sh.cell(i, j).value = value
     sh = wb["Penilaian Interview"]
-    writable_columns = [1, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18]
+    # Append a 19th column; original 18 columns and all their Excel formulas remain intact.
+    # This also makes Excel backups round-trip the new batch field.
+    from copy import copy
+    sh.cell(6, 19).value = "Batch Interview"
+    sh.cell(6, 19)._style = copy(sh.cell(6, 18)._style)
+    sh.column_dimensions["S"].width = 23
+    for r in range(7, 157):
+        sh.cell(r, 19)._style = copy(sh.cell(r, 18)._style)
+    writable_columns = [1, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19]
     for r in range(7, 157):
         for c in writable_columns:
             sh.cell(r, c).value = None
@@ -257,6 +293,7 @@ def export_xlsx(candidates: dict, interviews: dict) -> bytes:
             continue
         sh.cell(row_num, 1).value = cid
         sh.cell(row_num, 4).value = _date_to_excel(interview.get("tanggal"))
+        sh.cell(row_num, 19).value = _safe_cell(interview.get("batch") or "")
         for i, (key, _, _) in enumerate(ASPEK, 5):
             score = interview.get(key)
             sh.cell(row_num, i).value = score if score in (1, 2, 3, 4, 5) else None

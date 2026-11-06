@@ -17,7 +17,7 @@ from data_store import KANDIDAT_FIELDS, ASPEK
 
 CANDIDATE_KEYS = [key for key, _ in KANDIDAT_FIELDS]
 INTERVIEW_KEYS = [
-    'id', 'tanggal', *[key for key, _, _ in ASPEK],
+    'id', 'tanggal', 'batch', *[key for key, _, _ in ASPEK],
     'keputusan', 'kelebihan', 'peningkatan', 'catatan', 'pewawancara',
 ]
 CANDIDATE_NUMBERS = {'semester', 'durasi', 'ipk'}
@@ -74,6 +74,13 @@ def _to_interview_value(key: str, value: Any):
         return int(value) if value not in (None, '', 0, '0') else None
     if key == 'tanggal':
         return date.fromisoformat(str(value)[:10]) if value else None
+    if key == 'batch':
+        if value in (None, ''):
+            return None  # Preserve unassigned historical records.
+        from data_store import BATCH_PATTERN
+        if not BATCH_PATTERN.fullmatch(str(value)):
+            raise ValueError('Format batch tidak valid. Gunakan format YYYY-BNN.')
+        return str(value)
     if key == 'keputusan':
         return str(value or 'Menunggu')
     return str(value) if value not in (None, '') else None
@@ -149,13 +156,17 @@ def save_candidate(record: dict, *, create: bool):
         raise DatabaseOperationError('Data kandidat gagal disimpan. Periksa IPK, semester, tanggal, dan koneksi database.') from exc
 
 
-def _write_interview(cur, record: dict, *, upsert: bool = True):
+def _write_interview(cur, record: dict, *, preserve_existing_batch: bool = False):
     fields = INTERVIEW_KEYS
     vals = [_to_interview_value(key, record.get(key)) for key in fields]
     identifiers = sql.SQL(', ').join(map(sql.Identifier, fields))
     placeholders = sql.SQL(', ').join([sql.Placeholder()] * len(fields))
     assignments = sql.SQL(', ').join([
-        sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(k), sql.Identifier(k))
+        # An older Excel backup has no batch column. Importing it must not erase
+        # a batch already recorded in PostgreSQL for the same candidate.
+        (sql.SQL('batch = COALESCE(EXCLUDED.batch, magang.wawancara.batch)')
+         if k == 'batch' and preserve_existing_batch else
+         sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(k), sql.Identifier(k)))
         for k in fields if k != 'id'
     ])
     cur.execute(sql.SQL('INSERT INTO magang.wawancara ({}) VALUES ({}) '
@@ -182,6 +193,6 @@ def import_backup(candidates: dict, interviews: dict):
                 for rec in candidates.values():
                     _write_candidate(cur, rec, upsert=True)
                 for rec in interviews.values():
-                    _write_interview(cur, rec)
+                    _write_interview(cur, rec, preserve_existing_batch=True)
     except (psycopg.Error, ValueError, TypeError) as exc:
         raise DatabaseOperationError('Impor database gagal, tidak ada perubahan parsial yang disimpan.') from exc

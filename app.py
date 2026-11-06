@@ -31,6 +31,7 @@ from data_store import (
     get_rubric_and_questions,
     ranking_rows,
     read_xlsx,
+    batch_label, make_batch_code, parse_batch_code,
 )
 
 st.set_page_config(
@@ -607,12 +608,19 @@ elif menu == "Penilaian Interview":
         old = I.get(cid, {})
         st.markdown(f"**{person.get('nama', '')}** · {person.get('kampus', '—')} · {person.get('prodi', '—')} · {person.get('bidang', '—')}")
         st.caption("Skor baru dihitung jika seluruh tujuh aspek sudah dinilai. Pilihan 'Belum Dinilai' tidak dihitung sebagai nilai 0.")
+        if old and not old.get("batch"):
+            st.info("Data interview ini dibuat sebelum fitur batch tersedia. Pilih periode pembukaan magang saat memperbarui hasilnya.")
         with st.form(f"interview_{cid}"):
-            a, b = st.columns(2)
+            prior_year, prior_number = parse_batch_code(old.get("batch"), (_date(old.get("tanggal")) or date.today()).year)
+            a, b, c = st.columns([1.2, 1, 1], gap="medium")
             with a:
                 interview_date = st.date_input("Tanggal Interview", value=_date(old.get("tanggal")) or date.today(), format="DD/MM/YYYY")
             with b:
-                interviewer = st.text_input("Pewawancara", value=old.get("pewawancara", ""))
+                batch_year = st.number_input("Tahun Pembukaan", min_value=2020, max_value=2100, value=prior_year, step=1)
+            with c:
+                batch_number = st.number_input("Batch ke-", min_value=1, max_value=50, value=prior_number, step=1)
+            interviewer = st.text_input("Pewawancara", value=old.get("pewawancara", ""))
+            st.caption(f"Periode saat ini: **{batch_label(make_batch_code(int(batch_year), int(batch_number)))}**. Batch mengikuti pembukaan magang, bukan otomatis dari tanggal interview.")
             st.markdown("#### Nilai Kompetensi")
             current_score = {}
             left, right = st.columns(2, gap="large")
@@ -638,7 +646,7 @@ elif menu == "Penilaian Interview":
             submitted = st.form_submit_button("💾 Simpan Hasil Interview", type="primary", use_container_width=True)
         if submitted:
             saved = {
-                "id": cid, "tanggal": interview_date.isoformat(), "pewawancara": interviewer,
+                "id": cid, "tanggal": interview_date.isoformat(), "batch": make_batch_code(batch_year, batch_number), "pewawancara": interviewer,
                 "keputusan": final, "kelebihan": strength, "peningkatan": needs_work, "catatan": notes,
                 **current_score,
             }
@@ -647,16 +655,16 @@ elif menu == "Penilaian Interview":
                 I[cid] = saved
                 sc, recom = calculate(saved, weights, high, mid)
                 if sc is None:
-                    st.success("Draft wawancara tersimpan di PostgreSQL. Lengkapi tujuh aspek penilaian untuk menampilkan skor dan ranking.")
+                    st.success(f"Draft wawancara untuk {batch_label(saved['batch'])} tersimpan di PostgreSQL. Lengkapi tujuh aspek penilaian untuk menampilkan skor dan ranking.")
                 else:
-                    st.success(f"Wawancara tersimpan di PostgreSQL · Skor: {sc:.1f}/100 · {recom}.")
+                    st.success(f"Wawancara {batch_label(saved['batch'])} tersimpan di PostgreSQL · Skor: {sc:.1f}/100 · {recom}.")
             except DatabaseOperationError as exc:
                 st.error(str(exc))
         show = I.get(cid)
         if show:
             sc, recom = calculate(show, weights, high, mid)
             with st.container(border=True):
-                st.markdown("**Hasil Penilaian Tersimpan**")
+                st.markdown(f"**Hasil Penilaian Tersimpan** · {batch_label(show.get('batch'))}")
                 if sc is None:
                     st.info("Masih berupa draft: tujuh aspek nilai belum lengkap.")
                 else:
@@ -670,30 +678,48 @@ elif menu == "Penilaian Interview":
                 st.caption(f"Pendalaman: {q['pendalaman']} · Fokus: {q['dinilai']}")
 
 elif menu == "Summary & Ranking":
-    section("EVALUATION / ANALYTICS", "Summary & Ranking Kandidat", "Pantau hasil wawancara, bandingkan skor, dan susun shortlist berdasarkan bobot penilaian yang sama dengan template Excel.")
-    total = len(C)
-    # Use columns so cards remain responsive in Streamlit layout.
-    c1,c2,c3,c4 = st.columns(4, gap="medium")
-    with c1: metric_card("Total Kandidat",total,"Seluruh peserta terdaftar","♙")
-    with c2: metric_card("Dinilai Lengkap",len(ranked),"Sudah masuk ranking","✓")
-    with c3: metric_card("Belum Lengkap",total-len(ranked),"Butuh tindak lanjut","◷")
-    with c4: metric_card("Skor Tertinggi",f"{ranked[0]['Skor']:.1f}" if ranked else "—","Nilai maksimum 100","✦")
+    section("EVALUATION / ANALYTICS", "Summary & Ranking Kandidat", "Bandingkan hasil berdasarkan tahun dan batch pembukaan magang. Peringkat dihitung ulang dalam batch yang dipilih.")
 
-    if ranked:
+    # Every selection is a new ranking scope, not just a filtered global rank.
+    codes = sorted({str(row.get("batch") or "") for row in I.values()}, reverse=True)
+    if "" in codes:
+        codes.remove("")
+        codes.append("")  # Old unassigned records appear last.
+    options = [None, *codes]
+    selected_batch = st.selectbox(
+        "Filter Tahun & Batch Interview",
+        options=options,
+        format_func=lambda code: "Semua tahun & batch" if code is None else batch_label(code),
+        help="Pilih satu batch untuk melihat metrik, peringkat, grafik dan status peserta khusus periode tersebut.",
+    )
+    if selected_batch is not None:
+        st.caption(f"Menampilkan **{batch_label(selected_batch)}**. Kandidat yang belum diwawancarai belum mempunyai batch dan hanya muncul pada tampilan Semua tahun & batch.")
+
+    scoped_ids = [cid for cid in C if selected_batch is None or
+                  (cid in I and (I[cid].get("batch") or "") == selected_batch)]
+    scoped_ranked = ranking_rows(C, I, weights, high, mid, batch_filter=selected_batch)
+    total = len(scoped_ids)
+    c1,c2,c3,c4 = st.columns(4, gap="medium")
+    with c1: metric_card("Total Kandidat",total,"Dalam periode terpilih","♙")
+    with c2: metric_card("Dinilai Lengkap",len(scoped_ranked),"Sudah masuk ranking","✓")
+    with c3: metric_card("Belum Lengkap",total-len(scoped_ranked),"Butuh tindak lanjut","◷")
+    with c4: metric_card("Skor Tertinggi",f"{scoped_ranked[0]['Skor']:.1f}" if scoped_ranked else "—","Nilai maksimum 100","✦")
+
+    if scoped_ranked:
         st.markdown('<div class="section-heading">Top Kandidat</div>',unsafe_allow_html=True)
         podium = []
-        for idx,r in enumerate(ranked[:3]):
+        for idx,r in enumerate(scoped_ranked[:3]):
             medal = ["01 / TOP SCORE","02 / RUNNER UP","03 / TOP 3"][idx]
-            podium.append(f'<div class="podium-item"><div class="podium-rank">{medal}</div><div class="podium-name">{html.escape(str(r["Nama Kandidat"]))}</div><div class="podium-meta">{html.escape(str(r["Perguruan Tinggi"]))}</div><div class="podium-score">{r["Skor"]:.1f}<span> / 100</span></div></div>')
+            podium.append(f'<div class="podium-item"><div class="podium-rank">{medal}</div><div class="podium-name">{html.escape(str(r["Nama Kandidat"]))}</div><div class="podium-meta">{html.escape(str(r["Perguruan Tinggi"]))} · {html.escape(str(r["Batch"]))}</div><div class="podium-score">{r["Skor"]:.1f}<span> / 100</span></div></div>')
         st.markdown('<div class="podium">'+''.join(podium)+'</div>',unsafe_allow_html=True)
         st.markdown('<div class="section-heading">Perbandingan Skor</div>',unsafe_allow_html=True)
-        plot = [{"Nama":r["Nama Kandidat"],"Skor":r["Skor"],"Rekomendasi":r["Rekomendasi"]} for r in ranked[:12]]
+        plot = [{"Nama":r["Nama Kandidat"],"Skor":r["Skor"],"Rekomendasi":r["Rekomendasi"], "Batch":r["Batch"]} for r in scoped_ranked[:12]]
         palette = alt.Scale(domain=["Direkomendasikan","Dipertimbangkan","Belum Direkomendasikan"], range=["#315fd4","#e0a23a","#e77e85"])
         chart = (alt.Chart(alt.Data(values=plot)).mark_bar(cornerRadiusEnd=6,size=20)
             .encode(x=alt.X("Skor:Q",scale=alt.Scale(domain=[0,100]),title="Nilai / 100"),
                     y=alt.Y("Nama:N",sort="-x",title=None),
                     color=alt.Color("Rekomendasi:N",scale=palette,legend=alt.Legend(orient="bottom")),
-                    tooltip=[alt.Tooltip("Nama:N"),alt.Tooltip("Skor:Q",format=".1f"),"Rekomendasi:N"])
+                    tooltip=[alt.Tooltip("Nama:N"),alt.Tooltip("Skor:Q",format=".1f"),"Rekomendasi:N", "Batch:N"])
             .properties(height=max(220,len(plot)*36),background="#ffffff").configure_view(stroke=None)
             .configure_axis(labelColor="#5c6e86",titleColor="#5c6e86",gridColor="#eaf0f6"))
         with st.container(border=True):
@@ -704,35 +730,36 @@ elif menu == "Summary & Ranking":
             cats=["Semua","Direkomendasikan","Dipertimbangkan","Belum Direkomendasikan"]
             reco_filter=st.selectbox("Filter rekomendasi",cats)
         with f2:
-            positions=sorted({str(r["Posisi Magang"]) for r in ranked if str(r["Posisi Magang"]).strip()})
+            positions=sorted({str(r["Posisi Magang"]) for r in scoped_ranked if str(r["Posisi Magang"]).strip()})
             pos_filter=st.selectbox("Filter posisi magang",["Semua",*positions])
-        filtered=[r for r in ranked if (reco_filter=="Semua" or r["Rekomendasi"]==reco_filter) and (pos_filter=="Semua" or r["Posisi Magang"]==pos_filter)]
-        keys=["Ranking","ID","Nama Kandidat","Perguruan Tinggi","Program Studi","Posisi Magang","IPK","Skor","Rekomendasi","Keputusan Akhir"]
+        filtered=[r for r in scoped_ranked if (reco_filter=="Semua" or r["Rekomendasi"]==reco_filter) and (pos_filter=="Semua" or r["Posisi Magang"]==pos_filter)]
+        keys=["Ranking","Batch","ID","Nama Kandidat","Perguruan Tinggi","Program Studi","Posisi Magang","IPK","Skor","Rekomendasi","Keputusan Akhir"]
         st.dataframe([{k:r[k] for k in keys} for r in filtered],use_container_width=True,hide_index=True,
                      column_config={"Skor":st.column_config.ProgressColumn("Skor",min_value=0,max_value=100,format="%.1f")})
-        st.caption("Peringkat dihitung dari seluruh kandidat yang dinilai lengkap. Bila nilainya sama, peringkat sama. Keputusan akhir tetap ditetapkan pewawancara.")
+        st.caption("Saat satu batch dipilih, peringkat dihitung ulang khusus peserta batch tersebut. Skor sama mendapatkan peringkat sama. Keputusan akhir ditetapkan pewawancara.")
         if filtered:
             stream=StringIO()
             writer=csv.DictWriter(stream,fieldnames=keys)
             writer.writeheader()
             for r in filtered: writer.writerow({k:r[k] for k in keys})
-            st.download_button("⬇  Download Ranking (CSV)",stream.getvalue().encode("utf-8-sig"),file_name="ranking_peserta_magang.csv",mime="text/csv")
+            st.download_button("⬇  Download Ranking (CSV)",stream.getvalue().encode("utf-8-sig"),file_name=f"ranking_magang_{selected_batch or 'semua_batch'}.csv",mime="text/csv")
     else:
-        blank_state("Belum tersedia ranking. Tambahkan kandidat, kemudian lengkapi tujuh aspek penilaian melalui menu Penilaian Interview.")
+        blank_state("Belum ada peserta dengan tujuh aspek nilai lengkap untuk batch yang dipilih.")
 
     st.divider()
     st.markdown('<div class="section-heading">Status Seluruh Kandidat</div>',unsafe_allow_html=True)
     progresses=[]
-    for cid,p in sorted(C.items()):
+    for cid in sorted(scoped_ids):
+        p=C[cid]
         interview=I.get(cid)
         sc,reco=calculate(interview,weights,high,mid)
         filled=sum(1 for key,_,_ in ASPEK if interview and interview.get(key) in range(1,6))
-        progresses.append({"ID":cid,"Nama":p.get("nama",""),"Aspek Dinilai":filled,"Status":"Selesai" if sc is not None else ("Draft" if interview else "Belum Interview"),"Skor":sc,"Keputusan":(interview or {}).get("keputusan","—")})
+        progresses.append({"ID":cid,"Nama":p.get("nama",""),"Batch":batch_label((interview or {}).get("batch")), "Aspek Dinilai":filled,"Status":"Selesai" if sc is not None else ("Draft" if interview else "Belum Interview"),"Skor":sc,"Keputusan":(interview or {}).get("keputusan","—")})
     if progresses:
         st.dataframe(progresses,use_container_width=True,hide_index=True,
                      column_config={"Aspek Dinilai":st.column_config.ProgressColumn("Aspek Dinilai",min_value=0,max_value=7,format="%d/7")})
     else:
-        blank_state("Data peserta belum tersedia. Silakan mulai melalui menu Data Kandidat.")
+        blank_state("Belum ada peserta pada periode ini. Pilih batch lain atau mulai wawancara melalui menu Penilaian Interview.")
 
 elif menu == "Panduan & Rubrik":
     section("ASSESSMENT GUIDELINES", "Panduan & Rubrik", "Referensi pewawancara: bobot kompetensi, skala nilai, dan pertanyaan yang digunakan secara konsisten untuk setiap peserta.")
