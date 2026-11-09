@@ -296,6 +296,60 @@ def _shortlist_table(records: list[dict]):
     st.dataframe(records, use_container_width=True, hide_index=True)
 
 
+def _safe_excel_text(value) -> str:
+    """Write untrusted candidate input as text, never as an Excel formula."""
+    clean = "" if value is None else str(value)
+    return "'" + clean if clean.lstrip().startswith(("=", "+", "-", "@")) else clean
+
+
+def _candidate_invitation_xlsx(rows: list[dict]) -> bytes:
+    """Produce a compact, invitation-ready Excel file, separate from the full backup."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    columns = [
+        ("ID", 13), ("Nama", 30), ("Email", 36), ("No. HP / WA", 20),
+        ("IPK", 11), ("Perguruan Tinggi", 34), ("Program Studi", 27),
+        ("Jenjang", 13), ("Semester", 13), ("Posisi Magang", 28),
+        ("Kota / Kabupaten", 23), ("Batch", 24), ("Status Interview", 24),
+    ]
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Undangan Interview"
+    sheet.sheet_view.showGridLines = False
+    sheet.freeze_panes = "C2"
+    sheet.row_dimensions[1].height = 28
+    header_fill = PatternFill(fill_type="solid", fgColor="173B70")
+    stripe_fill = PatternFill(fill_type="solid", fgColor="F2F6FC")
+    missing_fill = PatternFill(fill_type="solid", fgColor="FFF0F0")
+    for col, (header, width) in enumerate(columns, start=1):
+        cell = sheet.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = Font(name="Calibri", size=11, color="FFFFFF", bold=True)
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+        sheet.column_dimensions[get_column_letter(col)].width = width
+    for row_no, record in enumerate(rows, start=2):
+        sheet.row_dimensions[row_no].height = 22
+        for col, (name, _) in enumerate(columns, start=1):
+            value = record.get(name)
+            value = float(value) if name == "IPK" and value is not None else _safe_excel_text(value)
+            cell = sheet.cell(row=row_no, column=col, value=value)
+            cell.font = Font(name="Calibri", size=10, color="233950")
+            cell.alignment = Alignment(vertical="center")
+            if row_no % 2 == 0:
+                cell.fill = stripe_fill
+            if name == "IPK":
+                cell.number_format = "0.00"
+            if name == "Email" and not str(record.get("Email") or "").strip():
+                cell.fill = missing_fill
+    sheet.auto_filter.ref = f"A1:M{max(1, len(rows) + 1)}"
+    out = BytesIO()
+    workbook.save(out)
+    return out.getvalue()
+
+
 @st.dialog("Konfirmasi keluar", width="small")
 def show_logout_dialog():
     st.markdown('<p class="logout-copy">Anda akan keluar dari sistem Interview Peserta Magang.</p><div class="logout-note">Data kandidat dan hasil interview yang sudah disimpan tetap tersedia di PostgreSQL.</div>', unsafe_allow_html=True)
@@ -349,6 +403,99 @@ def show_delete_candidate_dialog(candidate_id: str, candidate_name: str):
                 )
                 st.session_state["candidate_pending_selection"] = "➕ Tambah Kandidat Baru"
                 st.rerun()
+
+
+@st.dialog("Detail Lengkap Kandidat", width="large")
+def show_candidate_detail_dialog(candidate_id: str):
+    """Read-only candidate profile, including every field in the entry form."""
+    person = C.get(candidate_id)
+    if not person:
+        st.warning("Data kandidat tidak ditemukan. Muat ulang halaman dan coba kembali.")
+        return
+
+    st.markdown(f"### {html.escape(str(person.get('nama') or 'Tanpa Nama'))}")
+    st.caption(f"ID Kandidat: {candidate_id} · Informasi ditampilkan dari PostgreSQL (hanya baca).")
+
+    def show_detail_field(label: str, value):
+        content = "—" if value is None or not str(value).strip() else str(value)
+        st.markdown(
+            '<div style="padding:10px 13px;margin:2px 0 8px;'
+            'background:#f8faff;border:1px solid #e6edf5;border-radius:10px;min-height:58px">'
+            f'<div style="color:#72839a;font-size:.73rem;font-weight:700;margin-bottom:4px">{html.escape(label)}</div>'
+            f'<div style="color:#193553;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere">{html.escape(content)}</div>'
+            '</div>', unsafe_allow_html=True,
+        )
+
+    sections = [
+        ("01 · Identitas & Kontak", [
+            ("Nama Lengkap", person.get("nama")),
+            ("Email", person.get("email")),
+            ("No. HP / WA", person.get("telepon")),
+            ("Kota / Kabupaten", person.get("kota")),
+            ("Alamat Domisili", person.get("alamat")),
+        ]),
+        ("02 · Pendidikan", [
+            ("Asal Perguruan Tinggi", person.get("kampus")),
+            ("Program Studi / Jurusan", person.get("prodi")),
+            ("Jenjang", person.get("jenjang")),
+            ("IPK", f"{_float(person.get('ipk')):.2f}"),
+            ("Semester", person.get("semester")),
+            ("Status Perkuliahan", person.get("status_kuliah")),
+        ]),
+        ("03 · Pengalaman & Kompetensi", [
+            ("Pengalaman Magang / Kerja", person.get("pengalaman_kerja")),
+            ("Pengalaman Organisasi", person.get("pengalaman_organisasi")),
+            ("Proyek / Portofolio", person.get("portofolio")),
+            ("Keahlian Utama", person.get("keahlian")),
+            ("Tools / Software", person.get("tools")),
+            ("Sertifikasi / Pelatihan", person.get("sertifikasi")),
+            ("Tautan LinkedIn / Portofolio", person.get("link")),
+        ]),
+        ("04 · Preferensi Magang & Berkas", [
+            ("Posisi / Bidang Magang", person.get("bidang")),
+            ("Bersedia WFO", person.get("wfo")),
+            ("Durasi Magang (bulan)", person.get("durasi")),
+            ("Dapat Mulai Tanggal", person.get("mulai")),
+            ("Status CV / Berkas", person.get("status_cv")),
+            ("Motivasi / Harapan Magang", person.get("motivasi")),
+        ]),
+    ]
+    for heading, fields in sections:
+        st.markdown(f"#### {heading}")
+        for n in range(0, len(fields), 2):
+            pair = st.columns(2, gap="small")
+            for col, (label, value) in zip(pair, fields[n:n + 2]):
+                with col:
+                    show_detail_field(label, value)
+
+    st.markdown("#### 05 · Informasi Interview")
+    interview = I.get(candidate_id)
+    if not interview:
+        st.info("Belum ada hasil interview yang tersimpan untuk kandidat ini.")
+    else:
+        final_score, recommendation = calculate(interview, weights, high, mid)
+        batch_code = interview.get("batch")
+        interview_fields = [
+            ("Tanggal Interview", interview.get("tanggal")),
+            ("Batch Rekrutmen", batch_label(batch_code) if batch_code else "Belum ditentukan"),
+            ("Pewawancara", interview.get("pewawancara")),
+            ("Skor Akhir", f"{final_score:.1f} / 100" if final_score is not None else "Belum lengkap"),
+            ("Rekomendasi Sistem", recommendation if final_score is not None else "Belum dinilai lengkap"),
+            ("Keputusan Akhir", interview.get("keputusan")),
+        ]
+        interview_fields.extend((label, f"{interview.get(key, 0)} / 5" if interview.get(key) else "Belum dinilai")
+                                for key, label, _ in ASPEK)
+        interview_fields.extend([
+            ("Kelebihan / Kekuatan", interview.get("kelebihan")),
+            ("Hal yang Perlu Ditingkatkan", interview.get("peningkatan")),
+            ("Catatan / Tindak Lanjut", interview.get("catatan")),
+        ])
+        for n in range(0, len(interview_fields), 2):
+            pair = st.columns(2, gap="small")
+            for col, (label, value) in zip(pair, interview_fields[n:n + 2]):
+                with col:
+                    show_detail_field(label, value)
+    st.caption("Jendela ini hanya menampilkan data; tidak menyimpan atau mengubah informasi kandidat.")
 
 
 with st.sidebar:
@@ -643,24 +790,191 @@ elif menu == "Data Kandidat":
 
     st.divider()
     st.subheader("Daftar Kandidat")
-    search = st.text_input("Cari nama, kampus, atau posisi", placeholder="Masukkan kata kunci...")
-    table = []
-    for key, val in sorted(C.items()):
-        searchable = " ".join(str(val.get(field, "")) for field in ["nama", "kampus", "prodi", "bidang"]).lower()
-        if search and search.lower() not in searchable:
+    st.caption("Cari dan filter kandidat sebelum mengunduh data untuk kebutuhan undangan interview.")
+    search = st.text_input(
+        "Cari nama, kampus, program studi, atau posisi",
+        placeholder="Masukkan kata kunci...", key="candidate_filter_search",
+    )
+
+    with st.container(border=True):
+        st.markdown("**Filter & Ekspor Kandidat**")
+        left, middle, right = st.columns([1.35, 1, 1.35], gap="medium")
+        with left:
+            ipk_operator = st.selectbox(
+                "Kriteria IPK",
+                ["Semua IPK", "Lebih dari (>)", "Minimal (≥)",
+                 "Kurang dari (<)", "Maksimal (≤)", "Sama dengan (=)"],
+                key="candidate_filter_ipk_operator",
+            )
+        with middle:
+            ipk_limit = st.number_input(
+                "Nilai IPK", min_value=0.0, max_value=4.0,
+                value=3.50, step=0.01, format="%.2f",
+                key="candidate_filter_ipk_limit",
+                disabled=ipk_operator == "Semua IPK",
+            )
+        with right:
+            positions = sorted({str(c.get("bidang") or "").strip()
+                                for c in C.values() if str(c.get("bidang") or "").strip()})
+            position_filter = st.selectbox(
+                "Posisi Magang", ["Semua Posisi", *positions],
+                key="candidate_filter_position",
+            )
+
+        with st.expander("Filter lanjutan (kampus, prodi, status interview, batch)"):
+            extra1, extra2 = st.columns(2, gap="medium")
+            with extra1:
+                campuses = sorted({str(c.get("kampus") or "").strip()
+                                   for c in C.values() if str(c.get("kampus") or "").strip()})
+                campus_filter = st.selectbox(
+                    "Perguruan Tinggi", ["Semua Kampus", *campuses],
+                    key="candidate_filter_campus",
+                )
+                interview_filter = st.selectbox(
+                    "Status Interview",
+                    ["Semua Status", "Belum Interview", "Draft / Belum Lengkap", "Selesai"],
+                    key="candidate_filter_interview_status",
+                )
+            with extra2:
+                majors = sorted({str(c.get("prodi") or "").strip()
+                                 for c in C.values() if str(c.get("prodi") or "").strip()})
+                major_filter = st.selectbox(
+                    "Program Studi", ["Semua Prodi", *majors],
+                    key="candidate_filter_major",
+                )
+                known_batch_codes = sorted({str(i.get("batch") or "") for i in I.values()
+                                            if str(i.get("batch") or "")}, reverse=True)
+                batch_filter = st.selectbox(
+                    "Tahun & Batch Interview", [None, *known_batch_codes, ""],
+                    format_func=lambda code: (
+                        "Semua Batch" if code is None else
+                        "Belum ditentukan" if code == "" else batch_label(code)
+                    ),
+                    key="candidate_filter_batch",
+                )
+            st.caption(
+                "Batch berasal dari data interview. Kandidat yang belum diwawancarai "
+                "umumnya belum memiliki batch, jadi gunakan Semua Batch saat membuat undangan pertama."
+            )
+        email_only = st.checkbox(
+            "Hanya kandidat yang sudah memiliki alamat email",
+            value=False, key="candidate_filter_email_only",
+        )
+
+    preview_rows = []
+    export_rows = []
+    for candidate_id, val in sorted(C.items()):
+        searchable = " ".join(str(val.get(field, "") or "")
+                              for field in ["nama", "kampus", "prodi", "bidang"]).casefold()
+        if search.strip() and search.strip().casefold() not in searchable:
             continue
-        score, status = calculate(I.get(key), weights, high, mid)
-        table.append({
-            "ID": key,
+        ipk = _float(val.get("ipk"), 0.0)
+        if ipk_operator == "Lebih dari (>)" and not ipk > ipk_limit:
+            continue
+        if ipk_operator == "Minimal (≥)" and not ipk >= ipk_limit:
+            continue
+        if ipk_operator == "Kurang dari (<)" and not ipk < ipk_limit:
+            continue
+        if ipk_operator == "Maksimal (≤)" and not ipk <= ipk_limit:
+            continue
+        if ipk_operator == "Sama dengan (=)" and not abs(ipk - ipk_limit) < 0.00001:
+            continue
+        if position_filter != "Semua Posisi" and str(val.get("bidang") or "").strip() != position_filter:
+            continue
+        if campus_filter != "Semua Kampus" and str(val.get("kampus") or "").strip() != campus_filter:
+            continue
+        if major_filter != "Semua Prodi" and str(val.get("prodi") or "").strip() != major_filter:
+            continue
+        interview = I.get(candidate_id)
+        score, calculated_status = calculate(interview, weights, high, mid)
+        interview_state = ("Belum Interview" if not interview else
+                           "Selesai" if score is not None else "Draft / Belum Lengkap")
+        if interview_filter != "Semua Status" and interview_filter != interview_state:
+            continue
+        batch_code = str((interview or {}).get("batch") or "")
+        if batch_filter is not None and batch_filter != batch_code:
+            continue
+        email = str(val.get("email") or "").strip()
+        if email_only and not email:
+            continue
+        batch_name = batch_label(batch_code) if batch_code else "Belum ditentukan"
+        preview_rows.append({
+            "ID": candidate_id,
             "Nama": val.get("nama", ""),
+            "Email": email,
             "Perguruan Tinggi": val.get("kampus", ""),
             "Program Studi": val.get("prodi", ""),
-            "IPK": val.get("ipk", ""),
+            "IPK": ipk,
             "Posisi": val.get("bidang", ""),
-            "Status Interview": status,
+            "Status Interview": calculated_status,
         })
-    if table:
-        _shortlist_table(table)
+        export_rows.append({
+            "ID": candidate_id,
+            "Nama": val.get("nama", ""),
+            "Email": email,
+            "No. HP / WA": val.get("telepon", ""),
+            "IPK": ipk,
+            "Perguruan Tinggi": val.get("kampus", ""),
+            "Program Studi": val.get("prodi", ""),
+            "Jenjang": val.get("jenjang", ""),
+            "Semester": val.get("semester", ""),
+            "Posisi Magang": val.get("bidang", ""),
+            "Kota / Kabupaten": val.get("kota", ""),
+            "Batch": batch_name,
+            "Status Interview": interview_state,
+        })
+
+    selected_count = len(export_rows)
+    email_count = sum(bool(str(r["Email"]).strip()) for r in export_rows)
+    total_count = len(C)
+    stat1, stat2, stat3 = st.columns(3, gap="medium")
+    stat1.metric("Hasil Filter", f"{selected_count} kandidat", f"Dari {total_count} kandidat")
+    stat2.metric("Email Terisi", email_count)
+    stat3.metric("Email Belum Terisi", selected_count - email_count)
+    if preview_rows:
+        _shortlist_table(preview_rows)
+        st.markdown("**Lihat Detail Kandidat**")
+        detail_left, detail_right = st.columns([3, 1], gap="medium", vertical_alignment="bottom")
+        with detail_left:
+            detail_candidate_id = st.selectbox(
+                "Pilih kandidat dari hasil filter",
+                [row["ID"] for row in preview_rows],
+                format_func=lambda candidate_id: (
+                    f"{candidate_id} — {C.get(candidate_id, {}).get('nama', '')}"
+                ),
+                key="candidate_preview_detail_choice",
+            )
+        with detail_right:
+            if st.button(
+                "🔎 Lihat Detail",
+                key="open_candidate_preview_detail",
+                use_container_width=True,
+                help="Tampilkan seluruh data kandidat dan informasi interview dalam satu jendela.",
+            ):
+                show_candidate_detail_dialog(detail_candidate_id)
+        try:
+            excel_bytes = _candidate_invitation_xlsx(export_rows)
+            st.download_button(
+                "⬇ Ekspor Hasil Filter ke Excel (.xlsx)",
+                data=excel_bytes,
+                file_name=f"Undangan_Interview_Magang_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary", use_container_width=True, key="candidate_export_excel",
+            )
+        except ImportError:
+            st.error("Ekspor Excel membutuhkan package openpyxl pada requirements.txt.")
+        with st.expander("Daftar alamat email untuk undangan (salin ke BCC)"):
+            # Use a comma-separated list for email clients; duplicates are removed.
+            addresses = list(dict.fromkeys(
+                str(row["Email"]).strip() for row in export_rows if str(row["Email"]).strip()
+            ))
+            if addresses:
+                st.code(", ".join(addresses), language=None)
+                st.caption("Periksa kembali alamat email sebelum mengirim. Daftar ini tidak mengirim email otomatis.")
+            else:
+                st.info("Belum ada alamat email yang terisi pada kandidat hasil filter.")
+    elif C:
+        st.info("Tidak ada kandidat yang memenuhi filter. Ubah kriteria untuk melihat hasil lain.")
     else:
         st.info("Belum ada data kandidat. Silakan tambah kandidat melalui form di atas.")
 
